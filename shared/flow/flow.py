@@ -6,9 +6,15 @@ Single file, standard library only (Python 3.11+).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import random
 import re
+import string
 import tomllib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -469,3 +475,180 @@ def render_step(defn: Definition, state_id: str, run_id: str, cmd: str = "flow")
     else:
         sections.append(f"After finishing the work, run:\n  {cmd} next {run_id}")
     return "\n\n".join(sections) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# runs: state file and transitions
+# ---------------------------------------------------------------------------
+
+RUN_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@dataclass
+class Run:
+    run_id: str
+    definition: str  # absolute path of the definition file
+    definition_hash: str  # sha256 of the definition file's bytes
+    current: str
+    visits: dict[str, int]
+    history: list[dict]  # {"state", "label", "at"}
+    status: str  # "running" or "ended"
+
+
+def _run_path(state_dir: Path, run_id: str) -> Path:
+    return state_dir / f"{run_id}.json"
+
+
+def _not_found(run_id: str, state_dir: Path) -> FlowError:
+    return FlowError(f"run not found: {run_id} (looked in {state_dir})")
+
+
+def load_run(state_dir: Path, run_id: str) -> Run:
+    if not RUN_ID_RE.match(run_id):
+        raise _not_found(run_id, state_dir)
+    path = _run_path(state_dir, run_id)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise _not_found(run_id, state_dir) from None
+    except OSError as e:
+        raise FlowError(f"{path}: cannot read run file ({e.strerror})") from e
+    try:
+        data = json.loads(text)
+        return Run(
+            run_id=data["run_id"],
+            definition=data["definition"],
+            definition_hash=data["definition_hash"],
+            current=data["current"],
+            visits=dict(data["visits"]),
+            history=list(data["history"]),
+            status=data["status"],
+        )
+    except (ValueError, KeyError, TypeError) as e:
+        raise FlowError(f"{path}: run file is corrupt ({e})") from e
+
+
+def save_run(state_dir: Path, run: Run) -> None:
+    """Write the run atomically (temp file + rename)."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    path = _run_path(state_dir, run.run_id)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _file_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _new_run_id(state_dir: Path) -> str:
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    while True:
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
+        run_id = f"{stamp}-{suffix}"
+        if not _run_path(state_dir, run_id).exists():
+            return run_id
+
+
+def step_target(defn: Definition, visits: dict[str, int], current: str, label: str | None) -> str:
+    """Return the state to enter next, applying max_visits / on_exceed."""
+    st = defn.states[current]
+    if st.end:
+        raise FlowError(f"state '{current}' is an end state")
+    if st.choices:
+        labels = ", ".join(c.label for c in st.choices)
+        if label is None:
+            raise FlowError(f"a result is required; choose one of: {labels}")
+        match = next((c for c in st.choices if c.label == label), None)
+        if match is None:
+            raise FlowError(f"unknown result '{label}'; choose one of: {labels}")
+        target = match.goto
+    else:
+        if label is not None:
+            raise FlowError(f"step '{current}' takes no --result")
+        target = st.goto
+    for _ in range(len(defn.states) + 1):
+        t = defn.states[target]
+        if t.max_visits is not None and visits.get(target, 0) >= t.max_visits:
+            target = t.on_exceed
+            continue
+        return target
+    raise FlowError("on_exceed chain does not terminate")
+
+
+def start_run(defn_path: Path, state_dir: Path, cmd: str = "flow") -> str:
+    """Create a run, save it, and return the first step's output."""
+    defn = load_definition(defn_path)
+    run = Run(
+        run_id=_new_run_id(state_dir),
+        definition=str(defn.path),
+        definition_hash=_file_hash(defn.path),
+        current=defn.start,
+        visits={defn.start: 1},
+        history=[],
+        status="ended" if defn.states[defn.start].end else "running",
+    )
+    out = render_step(defn, run.current, run.run_id, cmd)
+    save_run(state_dir, run)
+    return out
+
+
+def next_step(
+    run_id: str, label: str | None, state_dir: Path, cmd: str = "flow", force: bool = False
+) -> str:
+    """Record the result of the current step and return the next step's output.
+
+    Nothing is written unless every check passes.
+    """
+    run = load_run(state_dir, run_id)
+    if run.status == "ended":
+        raise FlowError(f"run already ended: {run_id}")
+    path = Path(run.definition)
+    if not path.is_file():
+        raise FlowError(f"definition not found: {path}")
+    new_hash = _file_hash(path)
+    if new_hash != run.definition_hash and not force:
+        raise FlowError(
+            f"definition changed since the run started: {path} (use --force to continue anyway)"
+        )
+    defn = load_definition(path)
+    if run.current not in defn.states:
+        raise FlowError(f"current state '{run.current}' no longer exists in the definition")
+
+    target = step_target(defn, run.visits, run.current, label)
+    run.history.append(
+        {
+            "state": run.current,
+            "label": label,
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+    )
+    run.visits[target] = run.visits.get(target, 0) + 1
+    run.current = target
+    run.definition_hash = new_hash
+    if defn.states[target].end:
+        run.status = "ended"
+    out = render_step(defn, target, run.run_id, cmd)
+    save_run(state_dir, run)
+    return out
+
+
+def status_text(run_id: str, state_dir: Path) -> str:
+    run = load_run(state_dir, run_id)
+    visits = ", ".join(f"{k}={v}" for k, v in run.visits.items())
+    lines = [
+        f"Run: {run.run_id}",
+        f"Definition: {run.definition}",
+        f"Status: {run.status}",
+        f"Current: {run.current}",
+        f"Visits: {visits}",
+    ]
+    if run.history:
+        lines.append("History:")
+        lines += [
+            f"  {i}. {h['state']} (result: {h['label'] or '-'})"
+            for i, h in enumerate(run.history, 1)
+        ]
+    else:
+        lines.append("History: (none)")
+    return "\n".join(lines) + "\n"
