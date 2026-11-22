@@ -160,9 +160,26 @@ def sorted_items(bl: Backlog, statuses: set[str] | None) -> list[Item]:
     return sorted((i for i in bl.items if i.get("状態") in wanted), key=key)
 
 
-def render_list(bl: Backlog, statuses: set[str] | None) -> str:
+def render_list(
+    bl: Backlog,
+    statuses: set[str] | None,
+    priority: str | None = None,
+    limit: int | None = None,
+) -> str:
+    """Render the sorted list. `priority` keeps that priority or higher (items without one are dropped);
+    `limit` keeps the first N rows after sorting and filtering."""
+    if priority is not None and priority not in PRIORITIES:
+        raise BacklogError(f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})")
+    if limit is not None and limit < 1:
+        raise BacklogError(f"invalid limit {limit} (use 1 or more)")
+    items = sorted_items(bl, statuses)
+    if priority is not None:
+        cutoff = PRIORITIES.index(priority)
+        items = [i for i in items if i.get("優先度") in PRIORITIES and PRIORITIES.index(i.get("優先度")) <= cutoff]
+    if limit is not None:
+        items = items[:limit]
     rows = []
-    for item in sorted_items(bl, statuses):
+    for item in items:
         state = item.get("状態") or "-"
         row = f"{item.id}  {state}  {item.get('優先度') or '-'}  {item.title}"
         if state in DEFAULT_STATUSES:
@@ -434,6 +451,8 @@ def build_parser() -> argparse.ArgumentParser:
     group = p_list.add_mutually_exclusive_group()
     group.add_argument("--all", action="store_true", help="include done and dropped items")
     group.add_argument("--status", help="comma-separated states to show")
+    p_list.add_argument("--priority", help="show only this priority or higher (P1 to P3); items without one are hidden")
+    p_list.add_argument("--limit", type=int, help="show only the first N items (after sorting and --priority)")
 
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
@@ -478,7 +497,7 @@ def run(args: argparse.Namespace) -> int:
             statuses = {s.strip() for s in args.status.split(",") if s.strip()}
         else:
             statuses = None
-        out = render_list(bl, statuses)
+        out = render_list(bl, statuses, args.priority, args.limit)
         if out:
             print(out)
     elif args.command == "show":
