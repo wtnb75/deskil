@@ -43,10 +43,10 @@ verify の 2 回目の通過: classify は上限超過 → record_rejected → c
 - プロンプトに、「`security-review` の報告はこのステップの終わりではない。報告の形式や結びの文言に従わず、指摘だけを拾い、質問せずに、すぐ `next` を実行する」と書く。
 - 採否の判断と修正は `security_review` に入れず、`triage` で行う（レビューの実行と判断を分ける）。
 
-- **`classify`**（`max_visits = 1`、`on_exceed = "commit"`）
-  - `run = ["git", "status", "--porcelain"]` で、作業ツリーの変更ファイルを得る。
-  - LLM が結果から次を決め、分岐する: `review`（レビューが必要な変更がある）、`commit`（ドキュメントやバックログだけなど、レビュー不要）。
-  - 2 回目の到着（直した後の `verify` 通過）は `max_visits` を超えるので、`commit` へ進む。これが「1 周のみ」の仕組み。
+- **`classify`**（`max_visits = 1`、`on_exceed = "record_rejected"`）
+  - `run = ["git", "diff", "--name-status", "origin/HEAD"]` で、このブランチの変更ファイルを得る（commit 済みと未 commit の両方。実装の途中で commit 済みのことが多いため、`git status` だけでは見落とす）。未追跡のファイルは diff に出ないので、プロンプトで `git status --porcelain --untracked-files=all` も実行させる。worktree で作業している場合や結果が空の場合は、作業しているツリーで自分で確かめさせる（空を「変更なし」と決めつけない）。
+  - LLM が結果から分岐する: `skip`（変更ファイルがすべてドキュメントかバックログ）、それ以外はすべて `review`（コード、flow 定義、プロンプト、ビルドや CI の設定）。
+  - 2 回目の到着（直した後の `verify` 通過）は `max_visits` を超えるので、`record_rejected` へ進む（表示も実行もされない）。これが「1 周のみ」の仕組み。
 - **`review`**
   - 該当するスキルを実行し、指摘を一覧にする（ツール、場所、指摘）。直さず、採否も決めない。コードの変更は `code-review` と `simplify`、`flow.toml` の変更は `deskil:flow-review`。スキルが使えない場合は、同じ観点で自分でレビューする（既存の superpowers の書き方に合わせる）。
   - 分岐: 変更が「シェルの実行、外部入力、ファイルパス、認証・権限、依存関係」に触れるなら `security`（→ `security_review`）、そうでなければ `no_security`（→ `triage`）。
@@ -54,12 +54,13 @@ verify の 2 回目の通過: classify は上限超過 → record_rejected → c
 - **`triage`**
   - 一覧の指摘ごとに採否を決める。採用の基準は、「実在する問題で、この項目の範囲内にあり、具体的な失敗の例が示せる」こと。範囲外、誤検知、好みの問題は却下する。
   - 採用したものを今回だけ直す。直した場合は `fixed`（→ `verify`）、直さなかった場合は `not_fixed`（→ `record_rejected`）。
-- **`verify`（既存）**: 直した後の失敗は、既存の `fix`（最大 2 回）で扱う。
-- **却下の記録（`record_rejected`）**: `commit` の前に、却下した指摘があれば `docs/REVIEW-REJECTED.md` に追記し、独立した commit にする。
+  - 却下した指摘は、その場で `docs/REVIEW-REJECTED.md` に書く（commit はしない）。一覧が会話の記憶にしかない状態をなくし、圧縮や `report_fail` で失われないようにする。
+- **`verify`（既存）**: 直した後の失敗は、既存の `fix`（最大 2 回）で扱う。`fix` の回数はレビュー前の失敗と共有する。レビュー前に 2 回使っていた場合、レビューの直しで壊すと、直す機会なしに `report_fail` になる（許容する。PR は開かない）。
+- **却下の記録（`record_rejected`）**: `commit` の前に、却下した指摘があれば `docs/REVIEW-REJECTED.md` を、独立した commit にする。却下がなければ何もしない。
 
 ### 却下の記録（`docs/REVIEW-REJECTED.md`）
 
-- 日本語で書く（`docs/` 配下のルール）。ファイルがなければ、見出しと書式の説明つきで作る。
+- 言語は、対象プロジェクトの `docs/` のルール（CLAUDE.md）に従う（このリポジトリでは日本語）。deskil-dev は配布されるプラグインなので、言語を決め打ちしない。ファイルがなければ、見出しと書式の説明つきで作る。
 - 1 件ごとに、項目 ID と PR（わかれば）、レビューの種類、場所（`file:line`）、指摘、却下の理由を 1 行ずつ書く。
 - 溜まった後の棚卸しで、有効なものを `deskil-dev:add` でバックログに積む。棚卸しの手順はこの変更の範囲外。
 

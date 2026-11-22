@@ -175,11 +175,17 @@ def test_implement_review_failure_after_fix_uses_the_fix_limit(tmp_path):
     assert "open_pr" not in visited(out)
 
 
-def test_classify_runs_git_status():
+def test_classify_sees_committed_and_uncommitted_changes():
     classify = flow_states("impl")["classify"]
-    assert classify["run"] == ["git", "status", "--porcelain"]
+    # The work may already be committed (plans tell the implementer to commit per task).
+    assert classify["run"] == ["git", "diff", "--name-status", "origin/HEAD"]
     assert classify["max_visits"] == 1
     assert classify["on_exceed"] == "record_rejected"
+    prompt = classify["prompt"]
+    assert "untracked" in prompt  # new files are not in the diff
+    assert "worktree" in prompt  # the command may have run in another tree
+    assert "empty" in prompt  # an empty result must not mean "skip"
+    assert "reached again" not in prompt  # the second arrival is redirected and never shown
 
 
 def test_security_review_cannot_stall_the_flow():
@@ -202,9 +208,21 @@ def test_triage_prompt_fixes_once():
     assert "once" in prompt and "out of scope" in prompt
 
 
-def test_record_rejected_prompt_covers_the_file():
+def test_triage_writes_rejected_findings_to_the_file_at_once():
+    # The list must not live only in the conversation (it is lost on compaction or report_fail).
+    prompt = flow_states("impl")["triage"]["prompt"]
+    assert "docs/REVIEW-REJECTED.md" in prompt
+
+
+def test_security_review_handles_an_empty_report():
+    assert "no findings" in flow_states("impl")["security_review"]["prompt"].lower()
+
+
+def test_record_rejected_commits_the_file_in_the_projects_language():
     prompt = flow_states("impl")["record_rejected"]["prompt"]
     assert "docs/REVIEW-REJECTED.md" in prompt and "nothing" in prompt.lower()
+    assert "Japanese" not in prompt  # the language comes from the project's rules for docs
+    assert "language" in prompt
 
 
 def prepare_step(tmp_path):

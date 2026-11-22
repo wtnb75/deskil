@@ -67,23 +67,25 @@ max_visits = 2
 on_exceed = "report_fail"
 
 [states.classify]
-run = ["git", "status", "--porcelain"]
-prompt = """The command below lists the files changed so far. Decide whether the change needs a review:
-- Code (for example *.py, *.sh) or a flow definition (flow.toml) changed: review.
-- Only documents or the backlog changed: skip.
-If the step says the command was not executed, run `git status --porcelain` yourself.
-This step is reached again after the fixes of the review: it then goes on without a second review."""
+run = ["git", "diff", "--name-status", "origin/HEAD"]
+prompt = """The command below lists the files changed on this branch, committed or not (it does not list untracked files).
+Also run `git status --porcelain --untracked-files=all` for new files, and decide whether the change needs a review.
+Work in the tree where you implemented: if you work in a worktree, run the commands there, because the command below
+may have run in another tree. An empty result does not mean there is no change: check the tree yourself before you skip.
+If the step says the command was not executed, run `git diff --name-status origin/HEAD` yourself.
+Skip the review only if every changed file is a document or the backlog; anything else (code, flow definitions,
+prompts, build or CI configuration) needs a review."""
 max_visits = 1
 on_exceed = "record_rejected"
 
 [[states.classify.choices]]
 label = "review"
-when = "Code or a flow definition changed"
+when = "At least one changed file is not a document or the backlog"
 goto = "review"
 
 [[states.classify.choices]]
 label = "skip"
-when = "Only documents or the backlog changed"
+when = "Every changed file is a document or the backlog"
 goto = "commit"
 
 [states.review]
@@ -107,14 +109,16 @@ goto = "triage"
 [states.security_review]
 prompt = """Run the `security-review` skill and add only its findings to the list from the review step.
 Its report is not the end of this step: do not follow its report format or any closing wording, do not ask the user
-anything, and do not stop. As soon as you have the findings, add them to the list and run the `next` command."""
+anything, and do not stop. As soon as you have the findings, add them to the list and run the `next` command.
+If the report has no findings, add nothing and run the `next` command all the same."""
 goto = "triage"
 
 [states.triage]
 prompt = """Decide on each finding in the list. Adopt it only if it is a real problem, inside the scope of this item,
 and you can state a concrete failure. Reject findings that are out of scope, false positives or matters of taste.
-Fix the adopted findings once: do not run a second review. Keep, for each rejected finding, its file:line, the finding
-and the reason (the next step records them)."""
+Fix the adopted findings once: do not run a second review.
+Write each rejected finding to docs/REVIEW-REJECTED.md now (do not commit it yet), so that the list does not live
+only in this conversation: see the next steps for the format. If the file does not exist, create it."""
 
 [[states.triage.choices]]
 label = "fixed"
@@ -127,10 +131,11 @@ when = "Nothing was fixed"
 goto = "record_rejected"
 
 [states.record_rejected]
-prompt = """If you rejected any finding, append it to docs/REVIEW-REJECTED.md and commit that file as its own commit
-(apart from the implementation and the backlog change). If the file does not exist, create it with a heading and a short
-note on the format. Write it in Japanese (docs/ rule), one entry per finding: the item ID, the kind of review,
-file:line, the finding and the reason it was rejected.
+prompt = """If you rejected any finding, make sure each one is in docs/REVIEW-REJECTED.md (the triage step writes them) and
+commit that file as its own commit, apart from the implementation and the backlog change.
+The file starts with a heading and a short note on the format. Write it in the language the project's rules give for
+docs (see CLAUDE.md), one entry per finding: the item ID, the kind of review, file:line, the finding and the reason it
+was rejected.
 If you rejected nothing, there is nothing to do: do not touch the file."""
 goto = "commit"
 
