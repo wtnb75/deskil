@@ -166,6 +166,7 @@ exits = { ok = "review", fail = "fix" }   # 部品の終了ステートID = こ�
 | `flow status <run-id>` | 現在地・訪問回数・履歴を出力する。中断後の再開に使う。 |
 | `flow lint <定義> [--format text\|json\|github]` | 構造を検査する。エラーがあれば終了コード 1。`json` は `{"file", "issues": [{level, code, where, message}]}`、`github` は `::error file=<定義>::...` / `::warning ...`（Issue は行番号を持たないので file のみ）。`json` / `github` では、TOML を読めない場合も `read-error` の issue として出力する（B-008）。 |
 | `flow dry-run <定義> [--results a,b,c]` | 状態ファイルを作らずに、定義を辿った出力を確認する。`--results` を省くと、全ステートの出力を一覧する。 |
+| `flow test <定義> <シナリオ>` | シナリオ TOML（`[[scenario]]` に `name`、`choices`＝判断の列、`expect`＝開始ステートから終了ステートまで通るステート ID の列）を、定義を実際に辿って検証する（B-015）。`max_visits` / `on_exceed` も本物の実行どおりに効くので、上限超過の経路も書ける。`run` のステートは実行しない。判断の過不足・不明なラベル・期待との不一致は `FAIL`。1 つでも失敗すれば終了コード 1。目視用の `dry-run` と違い自動検証用で、手順の文面は比べない（スナップショット比較はしない）。 |
 | `flow graph <定義>` | 状態遷移を Mermaid の `flowchart TD` として出力する（B-007）。`goto` と `choices`（ラベル付き）は実線、`on_exceed` は破線（`max N`）。ノード ID は `n_<ID>` で、`end` などの予約語を避ける。実行履歴の重ね表示と DOT 出力はしない。 |
 | `flow rename <定義> <旧ID> <新ID>` | ステート ID を、すべての参照も含めて改名する。実行後に lint を通し、失敗したら元に戻す。 |
 
