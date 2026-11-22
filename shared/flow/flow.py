@@ -15,6 +15,7 @@ import re
 import string
 import sys
 import tomllib
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -705,6 +706,72 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
 
 
 # ---------------------------------------------------------------------------
+# rename
+# ---------------------------------------------------------------------------
+
+
+def _rewrite_ids(text: str, old: str, new: str) -> str:
+    """Rename a state id in table headers and in start/goto/on_exceed values.
+
+    Comments and multi-line strings (prompt bodies) are left untouched.
+    """
+    old_re = re.escape(old)
+    head_re = re.compile(rf"^(\s*\[\[?\s*states\.){old_re}(?=[.\]\s])")
+    key_re = re.compile(rf"""(?<![\w."'-])(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\3""")
+    out: list[str] = []
+    delim: str | None = None  # open multi-line string delimiter, if inside one
+    for line in text.splitlines(keepends=True):
+        if delim is not None:
+            if delim in line:
+                delim = None
+            out.append(line)
+            continue
+        if not line.lstrip().startswith("#"):
+            line = head_re.sub(lambda m: m.group(1) + new, line)
+            line = key_re.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{new}{m.group(3)}", line)
+            for d in ('"""', "'''"):
+                if line.count(d) % 2 == 1:
+                    delim = d
+                    break
+        out.append(line)
+    return "".join(out)
+
+
+def rename_state(defn_path: Path, old: str, new: str) -> None:
+    """Rename a state everywhere it is referenced.
+
+    The result is linted before it replaces the file; if it introduces any new
+    lint error, the original file is left untouched and FlowError is raised.
+    """
+    path = Path(defn_path)
+    states = read_toml(path).get("states")
+    if not isinstance(states, dict) or old not in states:
+        raise FlowError(f"state not found: {old}")
+    if not ID_RE.match(new):
+        raise FlowError(f"invalid state id '{new}': must match {ID_RE.pattern}")
+    if new in states:
+        raise FlowError(f"state already exists: {new}")
+
+    def errors_of(p: Path) -> Counter:
+        return Counter(i.code for i in lint(p) if i.level == "error")
+
+    before = errors_of(path)
+    new_text = _rewrite_ids(path.read_bytes().decode("utf-8"), old, new)
+    tmp = path.with_name(path.name + ".rename.tmp")
+    tmp.write_bytes(new_text.encode("utf-8"))
+    try:
+        after = errors_of(tmp)
+        worse = sorted(code for code, n in after.items() if n > before.get(code, 0))
+        if worse:
+            raise FlowError(
+                f"rename would introduce lint errors ({', '.join(worse)}); {path} was not changed"
+            )
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # command line
 # ---------------------------------------------------------------------------
 
@@ -748,6 +815,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("dry-run", help="show the steps without creating a run")
     p.add_argument("definition", type=Path)
     p.add_argument("--results", help="comma-separated result labels to walk through")
+
+    p = sub.add_parser("rename", help="rename a state and all references to it")
+    p.add_argument("definition", type=Path)
+    p.add_argument("old")
+    p.add_argument("new")
     return parser
 
 
@@ -759,6 +831,10 @@ def main(argv: list[str] | None = None) -> int:
             for issue in issues:
                 print(format_issue(issue))
             return 1 if any(i.level == "error" for i in issues) else 0
+        if args.command == "rename":
+            rename_state(args.definition, args.old, args.new)
+            print(f"renamed {args.old} -> {args.new}")
+            return 0
         if args.command == "dry-run":
             results = None
             if args.results is not None:
