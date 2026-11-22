@@ -18,11 +18,13 @@ import posixpath
 import random
 import re
 import shlex
+import shutil
 import signal
 import string
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from collections import Counter
 from dataclasses import asdict, dataclass, field
@@ -1688,6 +1690,74 @@ def next_step(
     return out
 
 
+def _scan_runs(state_dir: Path) -> list[tuple[str, Run | None, float]]:
+    """(run id, run or None if unreadable, mtime) for each run file, oldest first."""
+    found: list[tuple[str, Run | None, float]] = []
+    if not state_dir.is_dir():
+        return found
+    for path in state_dir.glob("*.json"):
+        run_id = path.stem
+        if not RUN_ID_RE.match(run_id):
+            continue
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
+        try:
+            run: Run | None = load_run(state_dir, run_id)
+        except FlowError:
+            run = None
+        found.append((run_id, run, mtime))
+    found.sort(key=lambda r: (r[2], r[0]))
+    return found
+
+
+def runs_text(state_dir: Path) -> str:
+    """List the runs: id, status, last update and definition."""
+    rows = _scan_runs(state_dir)
+    if not rows:
+        return f"no runs in {state_dir}\n"
+    lines = []
+    for run_id, run, mtime in rows:
+        updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+        if run is None:
+            lines.append(f"{run_id}  corrupt  {updated}")
+        else:
+            lines.append(f"{run_id}  {run.status}  {updated}  {run.definition}")
+    return "\n".join(lines) + "\n"
+
+
+def gc_runs(
+    state_dir: Path, older_than: float | None = None, done: bool = False
+) -> str:
+    """Delete runs that match every given filter; unreadable run files are kept.
+
+    `older_than` is a number of days since the run was last updated; `done`
+    selects runs that have ended. At least one filter is required.
+    """
+    if older_than is None and not done:
+        raise FlowError("gc needs --older-than DAYS and/or --done")
+    if older_than is not None and not 0 <= older_than < float("inf"):
+        raise FlowError("--older-than must be a non-negative number of days")
+    cutoff = None if older_than is None else time.time() - older_than * 86400
+    removed = []
+    for run_id, run, mtime in _scan_runs(state_dir):
+        if run is None:
+            continue
+        if done and run.status != "ended":
+            continue
+        if cutoff is not None and mtime > cutoff:
+            continue
+        _run_path(state_dir, run_id).unlink(missing_ok=True)
+        shutil.rmtree(state_dir / run_id, ignore_errors=True)
+        removed.append(run_id)
+    if not removed:
+        return "no runs removed\n"
+    return (
+        "".join(f"removed {r}\n" for r in removed) + f"{len(removed)} run(s) removed\n"
+    )
+
+
 def status_text(run_id: str, state_dir: Path) -> str:
     run = load_run(state_dir, run_id)
     visits = ", ".join(f"{k}={v}" for k, v in run.visits.items())
@@ -2168,6 +2238,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", parents=[common], help="show where a run is")
     p.add_argument("run_id")
 
+    sub.add_parser(
+        "runs", parents=[common], help="list the runs (id, status, updated, definition)"
+    )
+
+    p = sub.add_parser(
+        "gc",
+        parents=[common],
+        help="delete old and/or ended runs (every given filter must match)",
+    )
+    p.add_argument(
+        "--older-than",
+        type=float,
+        metavar="DAYS",
+        help="runs not updated for more than DAYS days",
+    )
+    p.add_argument("--done", action="store_true", help="runs that have ended")
+
     p = sub.add_parser("lint", help="check a definition")
     p.add_argument("definition", type=Path)
     p.add_argument(
@@ -2266,6 +2353,10 @@ def main(argv: list[str] | None = None) -> int:
                 args.force,
                 args.approval,
             )
+        elif args.command == "runs":
+            out = runs_text(state_dir)
+        elif args.command == "gc":
+            out = gc_runs(state_dir, args.older_than, args.done)
         else:
             out = status_text(args.run_id, state_dir)
         sys.stdout.write(out)
