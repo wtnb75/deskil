@@ -142,12 +142,13 @@ def test_implement_happy_path_order(tmp_path):
         "commit",
         "open_pr",
         "finish_backlog",
+        "back_to_default",
         "report",
     ]
     assert out.endswith("Flow complete.\n")
 
 
-TAIL = ["commit", "open_pr", "finish_backlog", "report"]
+TAIL = ["commit", "open_pr", "finish_backlog", "back_to_default", "report"]
 HEAD = ["pick", "prepare", "plan", "implement", "verify", "classify"]
 
 
@@ -165,7 +166,7 @@ def test_implement_review_with_fixes_reviews_once(tmp_path):
     out = dry_run("impl", ["found", "pass", "review", "no_security", "fixed", "pass"], tmp_path)
     seen = visited(out)
     assert seen.count("review") == 1 and seen.count("triage") == 1
-    assert seen[-5:] == ["record_rejected", *TAIL]
+    assert seen[-(len(TAIL) + 1):] == ["record_rejected", *TAIL]
     assert seen[: len(HEAD) + 3] == [*HEAD, "review", "triage", "verify"]
 
 

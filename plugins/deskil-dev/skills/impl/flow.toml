@@ -152,6 +152,13 @@ goto = "finish_backlog"
 [states.finish_backlog]
 prompt = """Run `backlog.py archive <ID> --done --pr <N>` with the PR number, then `backlog.py lint` (it must print nothing).
 Commit the backlog change as its own commit and push it to the same branch."""
+goto = "back_to_default"
+
+[states.back_to_default]
+prompt = """Switch back to the default branch with `git switch <default branch>` (the name found in prepare, without `origin/`),
+so that the next work does not start on this work branch. Do not pull or update it and do not delete the work branch:
+a new branch is always cut from origin (see prepare), so a stale local default branch does no harm.
+If the switch fails (for example the tree is not clean), do not force it: say so in the report."""
 goto = "report"
 
 [states.report]
