@@ -4,6 +4,11 @@
   "metadata": { "description": "deskil plugin marketplace" },
   "plugins": [
     {
+      "name": "core",
+      "source": "./plugins/core",
+      "description": "Authoring and review tools for flow definitions (lint, dry-run, rename)"
+    },
+    {
       "name": "feature-a",
       "source": "./plugins/feature-a",
       "description": "Sample plugin A (uses shared script via symlink)"
