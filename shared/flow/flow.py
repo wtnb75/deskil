@@ -347,3 +347,91 @@ def lint(path: Path) -> list[Issue]:
     if not any(i.level == "error" for i in issues):
         issues += lint_graph(raw)
     return issues
+
+
+def format_issue(issue: Issue) -> str:
+    return f"{issue.level}[{issue.code}] {issue.where}: {issue.message}"
+
+
+# ---------------------------------------------------------------------------
+# loading definitions
+# ---------------------------------------------------------------------------
+
+Text = str | dict  # a string, or {"file": "relative/path"}
+
+
+@dataclass(frozen=True)
+class Choice:
+    label: str
+    when: Text
+    goto: str
+
+
+@dataclass(frozen=True)
+class State:
+    id: str
+    prompt: Text
+    notes: tuple[str, ...]
+    goto: str | None
+    choices: tuple[Choice, ...]
+    end: bool
+    max_visits: int | None
+    on_exceed: str | None
+
+
+@dataclass(frozen=True)
+class Definition:
+    path: Path
+    base_dir: Path
+    start: str
+    always: tuple[Text, ...]
+    common: dict[str, Text]
+    states: dict[str, State]
+
+
+def read_text_value(value: Text, base_dir: Path) -> str:
+    """Return the text of a string or { file = ... } value (one trailing newline removed)."""
+    if isinstance(value, str):
+        return value
+    path = base_dir / value["file"]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
+    except UnicodeDecodeError as e:
+        raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
+    return text[:-1] if text.endswith("\n") else text
+
+
+def load_definition(path: Path) -> Definition:
+    """Lint a definition and build it. Any lint error raises FlowError."""
+    path = Path(path).resolve()
+    issues = lint(path)
+    errors = [i for i in issues if i.level == "error"]
+    if errors:
+        lines = "\n".join(format_issue(i) for i in errors)
+        raise FlowError(f"{path}: definition has errors\n{lines}")
+    raw = read_toml(path)
+    notes = raw.get("notes", {})
+    states = {}
+    for sid, st in raw["states"].items():
+        states[sid] = State(
+            id=sid,
+            prompt=st["prompt"],
+            notes=tuple(st.get("notes", [])),
+            goto=st.get("goto"),
+            choices=tuple(
+                Choice(c["label"], c["when"], c["goto"]) for c in st.get("choices", [])
+            ),
+            end=st.get("end") is True,
+            max_visits=st.get("max_visits"),
+            on_exceed=st.get("on_exceed"),
+        )
+    return Definition(
+        path=path,
+        base_dir=path.parent,
+        start=raw["start"],
+        always=tuple(notes.get("always", [])),
+        common=dict(notes.get("common", {})),
+        states=states,
+    )
