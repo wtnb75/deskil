@@ -83,7 +83,10 @@ def read_toml(path: Path) -> dict:
 ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
-TOP_KEYS = {"schema", "start", "notes", "states"}
+TOP_KEYS = {"schema", "start", "notes", "args", "states"}
+ARG_KEYS = {"required", "default"}
+# A reference to a start argument in a prompt, a note or a choice criterion.
+ARG_REF_RE = re.compile(r"\{\{arg\.([^{}\s]*)\}\}")
 NOTES_KEYS = {"always", "common"}
 STATE_KEYS = {
     "prompt",
@@ -163,6 +166,52 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
         )
     elif not is_file:
         _err(issues, "file-missing", where, f"file not found: {value['file']}")
+
+
+def _check_args(args: object, issues: list[Issue]) -> None:
+    """Check the [args] table: names, and `required` / `default` of each argument."""
+    if not isinstance(args, dict):
+        _err(issues, "type", "args", "args must be a table")
+        return
+    for name, spec in args.items():
+        where = f"args.{name}"
+        if not ID_RE.match(name):
+            _err(issues, "arg-name", where, f"argument name must match {ID_RE.pattern}")
+        if not isinstance(spec, dict):
+            _err(issues, "type", where, "an argument must be a table")
+            continue
+        _check_keys(spec, ARG_KEYS, where, issues)
+        if "required" in spec and type(spec["required"]) is not bool:
+            _err(issues, "type", f"{where}.required", "required must be true or false")
+        if "default" in spec and not isinstance(spec["default"], str):
+            _err(issues, "type", f"{where}.default", "default must be a string")
+        if spec.get("required") is True and "default" in spec:
+            _err(
+                issues,
+                "arg-default-required",
+                where,
+                "a required argument cannot have a default",
+            )
+
+
+def _check_arg_refs(raw: dict, issues: list[Issue]) -> None:
+    """Every {{arg.NAME}} in the inline texts of the root definition must be declared."""
+    declared = set(raw.get("args", {}))
+    notes = raw.get("notes", {})
+    texts: list[tuple[str, object]] = [
+        (f"notes.always[{i}]", v) for i, v in enumerate(notes.get("always", []))
+    ]
+    texts += [(f"notes.common.{n}", v) for n, v in notes.get("common", {}).items()]
+    for sid, st in raw["states"].items():
+        texts.append((f"states.{sid}.prompt", st.get("prompt")))
+        for i, ch in enumerate(st.get("choices", [])):
+            texts.append((f"states.{sid}.choices[{i}].when", ch.get("when")))
+    for where, value in texts:
+        if not isinstance(value, str):
+            continue
+        for name in ARG_REF_RE.findall(value):
+            if name not in declared:
+                _err(issues, "unknown-arg", where, f"argument '{name}' is not declared")
 
 
 def _check_target(
@@ -450,6 +499,8 @@ def lint_schema(raw: dict, base_dir: Path) -> list[Issue]:
     common: set[str] = set()
     if "notes" in raw:
         common = _check_notes(raw["notes"], base_dir, issues)
+    if "args" in raw:
+        _check_args(raw["args"], issues)
 
     states = raw.get("states")
     if not isinstance(states, dict):
@@ -739,6 +790,14 @@ def _expand_include(
         for i in lint_schema(sub_raw, target.parent)
     ]
     issues.extend(sub_issues)
+    if "args" in sub_raw:
+        _err(
+            issues,
+            "include-args",
+            f"{sub_label}args",
+            "a part cannot declare args; declare them in the root definition",
+        )
+        return None
     if any(i.level == "error" for i in sub_issues):
         return None
     sub_reldir = posixpath.normpath(
@@ -911,6 +970,7 @@ def _lint_expanded(raw: dict, path: Path, read) -> tuple[list[Issue], dict | Non
     issues = lint_schema(raw, path.resolve().parent)
     if any(i.level == "error" for i in issues):
         return issues, None
+    _check_arg_refs(raw, issues)
     merged, more = expand_includes(raw, path, read)
     issues += more
     if any(i.level == "error" for i in issues):
@@ -997,6 +1057,9 @@ class Definition:
         default_factory=dict
     )  # every file read, with its bytes
     hash: str = ""  # identifies the exact text of all the files
+    args: dict[str, dict] = field(
+        default_factory=dict
+    )  # declared start arguments: name -> {"required", "default"}
 
 
 def read_text_value(value: Text, base_dir: Path) -> str:
@@ -1073,12 +1136,57 @@ def load_definition(path: Path) -> Definition:
         states=states,
         sources=sources,
         hash=_definition_hash(path, sources),
+        args={n: dict(spec) for n, spec in raw.get("args", {}).items()},
     )
 
 
 # ---------------------------------------------------------------------------
 # rendering a step for the LLM
 # ---------------------------------------------------------------------------
+
+
+def substitute_args(value: str, args: dict[str, str] | None) -> str:
+    """Replace {{arg.NAME}} with the run's argument; None leaves the text as written."""
+    if args is None:
+        return value
+
+    def one(m: re.Match) -> str:
+        if m.group(1) not in args:
+            raise FlowError(f"unknown argument in a text: {m.group(1)}")
+        return args[m.group(1)]
+
+    return ARG_REF_RE.sub(one, value)
+
+
+def parse_args(items: list[str] | None) -> dict[str, str]:
+    """Parse repeated `--arg key=value` options (the value may contain '=')."""
+    out: dict[str, str] = {}
+    for item in items or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key:
+            raise FlowError(f"--arg must be key=value: {item!r}")
+        if key in out:
+            raise FlowError(f"argument given twice: {key}")
+        out[key] = value
+    return out
+
+
+def resolve_args(defn: Definition, given: dict[str, str]) -> dict[str, str]:
+    """Check the given arguments against the declarations and apply the defaults."""
+    for key in given:
+        if key not in defn.args:
+            raise FlowError(f"unknown argument: {key}")
+    out: dict[str, str] = {}
+    for name, spec in defn.args.items():
+        if name in given:
+            out[name] = given[name]
+        elif spec.get("required") is True:
+            raise FlowError(
+                f"missing required argument: {name} (use --arg {name}=VALUE)"
+            )
+        else:
+            out[name] = spec.get("default", "")
+    return out
 
 
 def render_command(result: dict) -> str:
@@ -1114,21 +1222,26 @@ def render_step(
     run_id: str,
     cmd: str = "flow",
     command: dict | None = None,
+    args: dict[str, str] | None = None,
 ) -> str:
     """Render what the LLM sees for one state. Reads only the files that state needs.
 
     `command` is the outcome of the state's `run` (see execute_state), if there is one.
+    `args` are the run's start arguments: {{arg.NAME}} in texts is replaced by them
+    (without `args`, texts are shown as written).
     """
     st = defn.states[state_id]
-    sections = [
-        f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"
-    ]
+
+    def text(value: Text) -> str:
+        return substitute_args(read_text_value(value, defn.base_dir), args)
+
+    sections = [f"[{st.id}] (run: {run_id})\n{text(st.prompt)}"]
 
     notes: list[str] = []
     for item in [*st.always, *(defn.common[n] for n in st.notes)]:
-        text = read_text_value(item, defn.base_dir)
-        if text not in notes:
-            notes.append(text)
+        note = text(item)
+        if note not in notes:
+            notes.append(note)
     if notes:
         sections.append("Notes:\n" + "\n".join(f"- {n}" for n in notes))
 
@@ -1158,7 +1271,7 @@ def render_step(
         width = max(len(c.label) for c in st.choices)
         lines = [
             f"  {cmd} next {run_id} --result {c.label.ljust(width)}{approval} : "
-            f"{read_text_value(c.when, defn.base_dir)}"
+            f"{text(c.when)}"
             for c in st.choices
         ]
         header = (
@@ -1195,6 +1308,9 @@ class Run:
     commands: list[dict] = field(
         default_factory=list
     )  # one record per command step entered
+    args: dict[str, str] = field(
+        default_factory=dict
+    )  # start arguments, defaults applied
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -1228,6 +1344,7 @@ def load_run(state_dir: Path, run_id: str) -> Run:
             ref=data.get("ref", DEFAULT_REF),
             cwd=data.get("cwd", ""),
             commands=list(data.get("commands", [])),
+            args=dict(data.get("args", {})),
         )
     except (ValueError, KeyError, TypeError) as e:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
@@ -1473,14 +1590,22 @@ def _enter(defn: Definition, run: Run, state_dir: Path, cmd: str) -> str:
     result = execute_state(defn, defn.states[run.current], run, state_dir)
     if result is not None:
         run.commands.append(result)
-    return render_step(defn, run.current, run.run_id, cmd, result)
+    return render_step(defn, run.current, run.run_id, cmd, result, run.args)
 
 
 def start_run(
-    defn_path: Path, state_dir: Path, cmd: str = "flow", ref: str = DEFAULT_REF
+    defn_path: Path,
+    state_dir: Path,
+    cmd: str = "flow",
+    ref: str = DEFAULT_REF,
+    args: dict[str, str] | None = None,
 ) -> str:
-    """Create a run, save it, and return the first step's output."""
+    """Create a run, save it, and return the first step's output.
+
+    `args` are the start arguments; they are checked against the definition's `[args]`.
+    """
     defn = load_definition(defn_path)
+    resolved = resolve_args(defn, args or {})
     run = Run(
         run_id=_new_run_id(state_dir),
         definition=str(defn.path),
@@ -1491,6 +1616,7 @@ def start_run(
         status="ended" if defn.states[defn.start].end else "running",
         ref=ref,
         cwd=str(Path.cwd()),
+        args=resolved,
     )
     try:
         run.definition_hash = defn.hash
@@ -1572,6 +1698,8 @@ def status_text(run_id: str, state_dir: Path) -> str:
         f"Current: {run.current}",
         f"Visits: {visits}",
     ]
+    if run.args:
+        lines.insert(4, "Args: " + ", ".join(f"{k}={v}" for k, v in run.args.items()))
     if run.history:
         lines.append("History:")
         lines += [
@@ -2017,6 +2145,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help=f"git ref whose copy of the definition may run its commands (default: {DEFAULT_REF}); "
         "a definition that differs from it is shown only",
     )
+    p.add_argument(
+        "--arg",
+        action="append",
+        metavar="KEY=VALUE",
+        help="a start argument declared in [args]; may be repeated",
+    )
 
     p = sub.add_parser(
         "next", parents=[common], help="record a result and print the next step"
@@ -2116,7 +2250,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         state_dir = _resolve_state_dir(args.state_dir)
         if args.command == "start":
-            out = start_run(args.definition, state_dir, _default_cmd(), args.ref)
+            out = start_run(
+                args.definition,
+                state_dir,
+                _default_cmd(),
+                args.ref,
+                parse_args(args.arg),
+            )
         elif args.command == "next":
             out = next_step(
                 args.run_id,
