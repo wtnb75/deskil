@@ -47,6 +47,7 @@ uv run flow.py graph <flow.toml>                      # print the transitions as
 uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
 uv run flow.py runs                                   # list runs (id, status, updated, definition)
 uv run flow.py gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
+uv run flow.py stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
 uv run flow.py export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
 uv run flow.py start <flow.toml> [--ref main]         # start a run, print the first step
 uv run flow.py next <run-id> [--result <label>]       # report a result, print the next step

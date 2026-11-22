@@ -1392,6 +1392,13 @@ def step_target(
     defn: Definition, visits: dict[str, int], current: str, label: str | None
 ) -> str:
     """Return the state to enter next, applying max_visits / on_exceed."""
+    return _resolve_target(defn, visits, current, label)[0]
+
+
+def _resolve_target(
+    defn: Definition, visits: dict[str, int], current: str, label: str | None
+) -> tuple[str, list[str]]:
+    """Return (the state to enter next, the states whose max_visits was hit on the way)."""
     st = defn.states[current]
     if st.end:
         raise FlowError(f"state '{current}' is an end state")
@@ -1407,12 +1414,14 @@ def step_target(
         if label is not None:
             raise FlowError(f"step '{current}' takes no --result")
         target = st.goto
+    exceeded: list[str] = []
     for _ in range(len(defn.states) + 1):
         t = defn.states[target]
         if t.max_visits is not None and visits.get(target, 0) >= t.max_visits:
+            exceeded.append(target)
             target = t.on_exceed
             continue
-        return target
+        return target, exceeded
     raise FlowError("on_exceed chain does not terminate")
 
 
@@ -1780,6 +1789,47 @@ def status_text(run_id: str, state_dir: Path) -> str:
     else:
         lines.append("History: (none)")
     return "\n".join(lines) + "\n"
+
+
+def stats_json(run_id: str, state_dir: Path) -> str:
+    """Per-state visit counts and on_exceed entries of one run, as JSON.
+
+    Visits come from the run record. The exceed counts are found by replaying
+    the recorded history against the definition: a state is counted each time
+    its max_visits was hit and the step was redirected to its on_exceed.
+    """
+    run = load_run(state_dir, run_id)
+    path = Path(run.definition)
+    if not path.is_file():
+        raise FlowError(f"definition not found: {path}")
+    defn = load_definition(path)
+    if defn.hash != run.definition_hash:
+        raise FlowError(
+            f"definition changed since the run last advanced: {path}; "
+            "the history cannot be replayed to count on_exceed entries"
+        )
+    exceeded: dict[str, int] = {}
+    visits = {defn.start: 1}
+    for h in run.history:
+        if h["state"] not in defn.states:
+            raise FlowError(f"state '{h['state']}' no longer exists in the definition")
+        target, hit = _resolve_target(defn, visits, h["state"], h["label"])
+        for sid in hit:
+            exceeded[sid] = exceeded.get(sid, 0) + 1
+        visits[target] = visits.get(target, 0) + 1
+    states = {
+        sid: {"visits": run.visits.get(sid, 0), "exceeded": exceeded.get(sid, 0)}
+        for sid in run.visits
+    }
+    data = {
+        "run_id": run.run_id,
+        "definition": run.definition,
+        "status": run.status,
+        "steps": len(run.history),
+        "exceeded_total": sum(exceeded.values()),
+        "states": states,
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -2238,6 +2288,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("status", parents=[common], help="show where a run is")
     p.add_argument("run_id")
 
+    p = sub.add_parser(
+        "stats",
+        parents=[common],
+        help="print per-state visits and on_exceed entries of a run",
+    )
+    p.add_argument("run_id")
+    p.add_argument("--json", action="store_true", required=True, help="output JSON")
+
     sub.add_parser(
         "runs", parents=[common], help="list the runs (id, status, updated, definition)"
     )
@@ -2353,6 +2411,8 @@ def main(argv: list[str] | None = None) -> int:
                 args.force,
                 args.approval,
             )
+        elif args.command == "stats":
+            out = stats_json(args.run_id, state_dir)
         elif args.command == "runs":
             out = runs_text(state_dir)
         elif args.command == "gc":
