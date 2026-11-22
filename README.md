@@ -69,7 +69,7 @@ and optional dependencies). The `deskil-dev` skills drive it:
 add      write a new todo item
 prio     propose priorities, apply them after you approve
 decide   compare approaches, record the decision (todo -> ready, or dropped)
-impl     implement a ready item on a branch, open a pull request, mark it done
+impl     implement a ready item on a branch, review the change once, open a pull request, mark it done
 ```
 
 The skills call `shared/backlog/backlog.py` (Python 3.11+, standard library only) so that ids, formats and moves are exact:
