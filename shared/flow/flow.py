@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import os
+import posixpath
 import random
 import re
 import shlex
@@ -52,17 +53,27 @@ class Issue:
 # ---------------------------------------------------------------------------
 
 
-def read_toml(path: Path) -> dict:
-    """Parse a TOML file, converting I/O and syntax errors into FlowError."""
+def read_source(path: Path) -> bytes:
+    """Read a file's bytes, converting I/O errors into FlowError."""
     try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
+        return path.read_bytes()
     except OSError as e:
         raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
+
+
+def parse_toml(path: Path, data: bytes) -> dict:
+    """Parse TOML text read from `path`, converting encoding and syntax errors into FlowError."""
+    try:
+        return tomllib.loads(data.decode("utf-8"))
     except UnicodeDecodeError as e:
         raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
     except tomllib.TOMLDecodeError as e:
         raise FlowError(f"{path}: {e}") from e
+
+
+def read_toml(path: Path) -> dict:
+    """Parse a TOML file, converting I/O and syntax errors into FlowError."""
+    return parse_toml(path, read_source(path))
 
 
 # ---------------------------------------------------------------------------
@@ -76,8 +87,12 @@ TOP_KEYS = {"schema", "start", "notes", "states"}
 NOTES_KEYS = {"always", "common"}
 STATE_KEYS = {
     "prompt", "notes", "goto", "choices", "end", "max_visits", "on_exceed", "delegate",
-    "run", "timeout", "cwd", "output_lines",
+    "run", "timeout", "cwd", "output_lines", "include", "exits",
 }
+# An include state is replaced by the states of another definition; it takes only these keys.
+INCLUDE_KEYS = ("include", "exits")
+# Joins a state id and an included state id in the expanded definition (`<state>__<sub state>`).
+INCLUDE_SEP = "__"
 # Options that only make sense together with `run`.
 RUN_OPTION_KEYS = ("timeout", "cwd", "output_lines")
 DEFAULT_TIMEOUT = 300
@@ -220,6 +235,21 @@ def _check_run(st: dict, where: str, issues: list[Issue]) -> None:
             _err(issues, "cwd-outside", f"{where}.cwd", f"'{cwd}' must stay inside the definition directory")
 
 
+def _check_include(st: dict, where: str, state_ids: set[str], issues: list[Issue]) -> None:
+    """Check an include state: only `include` (a path) and `exits` (end state id -> state id)."""
+    for key in st:
+        if key in STATE_KEYS and key not in INCLUDE_KEYS:
+            _err(issues, "include-with-other-keys", f"{where}.{key}", f"'{key}' cannot be used with include")
+    if not isinstance(st["include"], str) or not st["include"]:
+        _err(issues, "type", f"{where}.include", "include must be a path (a string)")
+    exits = st.get("exits", {})
+    if not isinstance(exits, dict):
+        _err(issues, "type", f"{where}.exits", "exits must be a table of end state id = state id")
+        return
+    for end_id, target in exits.items():
+        _check_target(target, f"{where}.exits.{end_id}", state_ids, issues)
+
+
 def _check_state(
     sid: str, st: object, state_ids: set[str], common: set[str], base_dir: Path,
     issues: list[Issue],
@@ -231,6 +261,11 @@ def _check_state(
         _err(issues, "type", where, "a state must be a table")
         return
     _check_keys(st, STATE_KEYS, where, issues)
+    if "include" in st:
+        _check_include(st, where, state_ids, issues)
+        return
+    if "exits" in st:
+        _err(issues, "exits-without-include", f"{where}.exits", "exits has no effect without include")
 
     if "prompt" not in st:
         _err(issues, "prompt-missing", where, "a state needs 'prompt'")
@@ -458,17 +493,210 @@ def lint_graph(raw: dict) -> list[Issue]:
     return issues
 
 
+# ---------------------------------------------------------------------------
+# include: expanding parts into one state machine
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _Exit:
+    """An edge into an end state of an included definition, to be replaced by its `exits` target."""
+
+    end_id: str
+
+
+def _rewrite_text(value: Text, reldir: str) -> Text:
+    """Make a { file = ... } path relative to the root definition's directory."""
+    if reldir == "." or isinstance(value, str):
+        return value
+    return {"file": posixpath.normpath(posixpath.join(reldir, value["file"]))}
+
+
+def _localize(st: dict, reldir: str, prefix: str) -> dict:
+    """Copy a state of an included definition, rewriting what depends on where the part lives."""
+    out = dict(st)
+    if prefix and "notes" in out:
+        out["notes"] = [prefix + n for n in out["notes"]]
+    if reldir == ".":
+        return out
+    if "prompt" in out:
+        out["prompt"] = _rewrite_text(out["prompt"], reldir)
+    if "choices" in out:
+        out["choices"] = [{**c, "when": _rewrite_text(c["when"], reldir)} for c in out["choices"]]
+    if "run" in out:  # ${DEF_DIR} is the directory of the part that wrote the command
+        out["run"] = [a.replace(DEF_DIR_VAR, f"{DEF_DIR_VAR}/{reldir}") for a in out["run"]]
+    if "cwd" in out:
+        out["cwd"] = posixpath.normpath(posixpath.join(reldir, out["cwd"]))
+    return out
+
+
+def _map_edges(st: dict, fn) -> dict:
+    """Copy a state with every transition target (goto, choices, on_exceed) passed through fn."""
+    out = dict(st)
+    if "goto" in out:
+        out["goto"] = fn(out["goto"])
+    if "on_exceed" in out:
+        out["on_exceed"] = fn(out["on_exceed"])
+    if "choices" in out:
+        out["choices"] = [{**c, "goto": fn(c["goto"])} for c in out["choices"]]
+    return out
+
+
+def _expand_include(
+    sid: str, st: dict, base: Path, reldir: str, prefix: str, stack: list[Path], read,
+    issues: list[Issue], label: str,
+) -> tuple[dict, dict, str] | None:
+    """Load and expand the part named by an include state: (states, common notes, entry state).
+
+    Returns None after reporting why the part cannot be used. `stack` holds the resolved paths
+    of the definitions being expanded (the ancestors), so a part may be included twice but never
+    inside itself.
+    """
+    where = f"{label}states.{sid}"
+    rel = st["include"]
+    norm = posixpath.normpath(rel)
+    if os.path.isabs(rel) or norm == ".." or norm.startswith("../"):
+        _err(issues, "include-outside", f"{where}.include", f"'{rel}' is outside the definition directory")
+        return None
+    # The path is judged as written (not after following symlinks): a symlink is how a part
+    # is shared between definitions.
+    target = base / norm
+    try:
+        real = target.resolve()
+        is_file = target.is_file()
+    except (OSError, ValueError, RuntimeError):
+        real, is_file = target, False
+    if not is_file:
+        _err(issues, "include-missing", f"{where}.include", f"file not found: {rel}")
+        return None
+    if real in stack:
+        _err(issues, "include-cycle", f"{where}.include", f"'{rel}' includes itself (directly or not)")
+        return None
+    try:
+        sub_raw = read(target)
+    except FlowError as e:
+        _err(issues, "include-unreadable", f"{where}.include", str(e))
+        return None
+    sub_label = f"{label}{norm}: "
+    sub_issues = [Issue(i.level, i.code, sub_label + i.where, i.message) for i in lint_schema(sub_raw, target.parent)]
+    issues.extend(sub_issues)
+    if any(i.level == "error" for i in sub_issues):
+        return None
+    sub_reldir = posixpath.normpath(posixpath.join(reldir, posixpath.dirname(norm) or "."))
+    states, common, start, ends = _expand_level(
+        sub_raw, target.parent, sub_reldir, prefix, True, [*stack, real], read, issues, sub_label
+    )
+    if isinstance(start, _Exit):
+        _err(issues, "include-start-end", where, f"'{rel}' starts at an end state")
+        return None
+    exits = st.get("exits", {})
+    missing, unknown = sorted(ends - set(exits)), sorted(set(exits) - ends)
+    for end_id in missing:
+        _err(issues, "exits-missing", f"{where}.exits", f"no exit for the end state '{end_id}' of {rel}")
+    for end_id in unknown:
+        _err(issues, "exits-unknown", f"{where}.exits.{end_id}", f"'{end_id}' is not an end state of {rel}")
+    if missing or unknown:
+        return None
+    return states, common, start
+
+
+def _expand_level(
+    raw: dict, base: Path, reldir: str, prefix: str, is_sub: bool, stack: list[Path], read,
+    issues: list[Issue], label: str,
+) -> tuple[dict, dict, str | _Exit, set[str]]:
+    """Expand the include states of one (already schema-checked) definition.
+
+    Returns (states, common notes, entry state, end state ids). In a part (`is_sub`), end states
+    are dropped and edges into them become _Exit; the includer replaces those with its `exits`.
+    """
+    src = raw["states"]
+    notes = raw.get("notes", {})
+    always = [_rewrite_text(a, reldir) for a in notes.get("always", [])]
+    common = {prefix + n: _rewrite_text(v, reldir) for n, v in notes.get("common", {}).items()}
+    out: dict[str, dict] = {}
+    entries: dict[str, str] = {}  # include state id -> entry state of its part
+    parts: dict[str, tuple[dict, dict]] = {}  # include state id -> (its part's states, exits)
+    for sid, st in src.items():
+        if "include" not in st:
+            continue
+        res = _expand_include(
+            sid, st, base, reldir, f"{prefix}{sid}{INCLUDE_SEP}", stack, read, issues, label
+        )
+        if res is None:
+            entries[sid] = prefix + sid  # the error is already reported
+            continue
+        sub_states, sub_common, sub_start = res
+        entries[sid] = sub_start
+        parts[sid] = (sub_states, st.get("exits", {}))
+        for name, item in sub_common.items():
+            if name in common:
+                _err(issues, "id-collision", f"{label}notes.common.{name}", f"note name '{name}' is defined twice")
+            common[name] = item
+
+    def local(target: str) -> str | _Exit:
+        if target in entries:
+            return entries[target]
+        if is_sub and src[target].get("end") is True:
+            return _Exit(target)
+        return prefix + target
+
+    def add(new_id: str, st: dict) -> None:
+        if new_id in out:
+            _err(issues, "id-collision", f"{label}states.{new_id}", f"state id '{new_id}' is defined twice")
+        out[new_id] = st
+
+    for sid, st in src.items():  # in definition order; a part's states take its include's place
+        if sid in parts:
+            sub_states, exits = parts[sid]
+
+            def through_exits(target, exits=exits):
+                return local(exits[target.end_id]) if isinstance(target, _Exit) else target
+
+            for sub_id, sub_st in sub_states.items():
+                add(sub_id, _map_edges(sub_st, through_exits))
+        elif "include" not in st and not (is_sub and st.get("end") is True):
+            new = _map_edges(_localize(st, reldir, prefix), local)
+            new["_always"] = always
+            add(prefix + sid, new)
+    ends = {sid for sid, st in src.items() if st.get("end") is True}
+    return out, common, local(raw["start"]), ends
+
+
+def expand_includes(raw: dict, path: Path, read=read_toml) -> tuple[dict, list[Issue]]:
+    """Expand include states into one definition; return it with the problems found.
+
+    `raw` is the parsed root definition at `path` and has passed lint_schema. `read(path)`
+    returns the parsed TOML of a part. The result has no include states; every state has `_always`
+    (the `notes.always` of the definition that wrote it) and part states are named
+    `<include state>__<state>`.
+    """
+    issues: list[Issue] = []
+    root = path.resolve()
+    states, common, start, _ = _expand_level(raw, root.parent, ".", "", False, [root], read, issues, "")
+    return {"schema": 1, "start": start, "notes": {"common": common}, "states": states}, issues
+
+
 def lint(path: Path) -> list[Issue]:
     """Lint a definition file. Graph checks run only if the schema is clean."""
     return lint_raw(read_toml(path), path)
 
 
-def lint_raw(raw: dict, path: Path) -> list[Issue]:
+def lint_raw(raw: dict, path: Path, read=read_toml) -> list[Issue]:
     """Lint an already parsed definition that was read from `path`."""
+    return _lint_expanded(raw, path, read)[0]
+
+
+def _lint_expanded(raw: dict, path: Path, read) -> tuple[list[Issue], dict | None]:
+    """Lint a definition and its parts; also return the expanded definition if it is free of errors."""
     issues = lint_schema(raw, path.resolve().parent)
-    if not any(i.level == "error" for i in issues):
-        issues += lint_graph(raw)
-    return issues
+    if any(i.level == "error" for i in issues):
+        return issues, None
+    merged, more = expand_includes(raw, path, read)
+    issues += more
+    if any(i.level == "error" for i in issues):
+        return issues, None
+    issues += lint_graph(merged)
+    return issues, merged
 
 
 def format_issue(issue: Issue) -> str:
@@ -531,6 +759,7 @@ class State:
     timeout: int | None = None
     cwd: str | None = None
     output_lines: int | None = None
+    always: tuple[Text, ...] = ()  # notes.always of the definition that wrote this state
 
 
 @dataclass(frozen=True)
@@ -538,9 +767,11 @@ class Definition:
     path: Path
     base_dir: Path
     start: str
-    always: tuple[Text, ...]
+    always: tuple[Text, ...]  # notes.always of the root definition
     common: dict[str, Text]
     states: dict[str, State]
+    sources: dict[Path, bytes] = field(default_factory=dict)  # every file read, with its bytes
+    hash: str = ""  # identifies the exact text of all the files
 
 
 def read_text_value(value: Text, base_dir: Path) -> str:
@@ -557,18 +788,33 @@ def read_text_value(value: Text, base_dir: Path) -> str:
     return text[:-1] if text.endswith("\n") else text
 
 
+def _definition_hash(path: Path, sources: dict[Path, bytes]) -> str:
+    """sha256 of the root file; with includes, of the root and every part (names included)."""
+    h = hashlib.sha256(sources[path])
+    for part in sorted(p for p in sources if p != path):
+        h.update(b"\0" + part.relative_to(path.parent).as_posix().encode() + b"\0" + sources[part])
+    return h.hexdigest()
+
+
 def load_definition(path: Path) -> Definition:
-    """Lint a definition and build it. Any lint error raises FlowError."""
+    """Lint a definition (and its parts) and build it. Any lint error raises FlowError."""
     path = Path(path).resolve()
-    raw = read_toml(path)  # read once: the lint and the build must see the same text
-    issues = lint_raw(raw, path)
+    sources: dict[Path, bytes] = {}
+
+    def read(p: Path) -> dict:
+        # Each file is read once: the lint, the build and the hash must see the same text.
+        if p not in sources:
+            sources[p] = read_source(p)
+        return parse_toml(p, sources[p])
+
+    raw = read(path)
+    issues, merged = _lint_expanded(raw, path, read)
     errors = [i for i in issues if i.level == "error"]
-    if errors:
+    if errors or merged is None:
         lines = "\n".join(format_issue(i) for i in errors)
         raise FlowError(f"{path}: definition has errors\n{lines}")
-    notes = raw.get("notes", {})
     states = {}
-    for sid, st in raw["states"].items():
+    for sid, st in merged["states"].items():
         states[sid] = State(
             id=sid,
             prompt=st["prompt"],
@@ -585,14 +831,17 @@ def load_definition(path: Path) -> Definition:
             timeout=st.get("timeout"),
             cwd=st.get("cwd"),
             output_lines=st.get("output_lines"),
+            always=tuple(st["_always"]),
         )
     return Definition(
         path=path,
         base_dir=path.parent,
-        start=raw["start"],
-        always=tuple(notes.get("always", [])),
-        common=dict(notes.get("common", {})),
+        start=merged["start"],
+        always=tuple(raw.get("notes", {}).get("always", [])),
+        common=dict(merged["notes"]["common"]),
         states=states,
+        sources=sources,
+        hash=_definition_hash(path, sources),
     )
 
 
@@ -639,7 +888,7 @@ def render_step(
     sections = [f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"]
 
     notes: list[str] = []
-    for item in [*defn.always, *(defn.common[n] for n in st.notes)]:
+    for item in [*st.always, *(defn.common[n] for n in st.notes)]:
         text = read_text_value(item, defn.base_dir)
         if text not in notes:
             notes.append(text)
@@ -744,13 +993,6 @@ def save_run(state_dir: Path, run: Run) -> None:
         raise
 
 
-def _file_hash(path: Path) -> str:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError as e:
-        raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
-
-
 def _new_run_id(state_dir: Path) -> str:
     """Pick an unused run id and reserve it by creating its (empty) run file."""
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -798,38 +1040,82 @@ def _tail(data: bytes, limit: int) -> tuple[str, int]:
     return "".join(lines[cut:]), cut
 
 
-def _ref_check(path: Path, ref: str) -> tuple[str | None, dict]:
-    """Check that `path` equals its copy at `ref`; return (reason or None, committed state table).
+def _git(directory: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(directory), *args],
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        timeout=30,
+        check=False,
+    )
 
-    The repository is found from the definition's own directory, not the caller's. The state
-    table is parsed from the committed bytes, so what runs is what git holds, even if the
-    working file changes between the comparison and the execution.
+
+def _git_fail(proc: subprocess.CompletedProcess) -> str:
+    detail = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
+    return detail[-1] if detail else "git failed"
+
+
+def _check_links(source: Path, base: Path, ref: str) -> str | None:
+    """Return why a symlink on the way from `base` to `source` is not the committed one.
+
+    Each link component must be a symlink at `ref` with the same target as in the working
+    tree; otherwise the link could be re-pointed at another committed file to pass the
+    content comparison.
+    """
+    current = base
+    for part in source.relative_to(base).parts:
+        current = current / part
+        if not current.is_symlink():
+            continue
+        parent = current.parent.resolve()
+        try:
+            tree = _git(parent, "ls-tree", ref, "--", current.name)
+            blob = _git(parent, "show", f"{ref}:./{current.name}")
+        except (OSError, subprocess.SubprocessError) as e:
+            return f"cannot run git: {e}"
+        mode = tree.stdout.decode("utf-8", errors="replace").split(" ", 1)[0]
+        if tree.returncode != 0 or blob.returncode != 0 or mode != "120000":
+            return f"the link '{current.relative_to(base).as_posix()}' is not a symlink at ref '{ref}'"
+        if blob.stdout != os.readlink(current).encode():
+            return f"the link '{current.relative_to(base).as_posix()}' differs from ref '{ref}'"
+    return None
+
+
+def _toplevel(directory: Path) -> str | None:
+    proc = _git(directory, "rev-parse", "--show-toplevel")
+    return proc.stdout.decode("utf-8", errors="replace").strip() if proc.returncode == 0 else None
+
+
+def _ref_check(defn: Definition, ref: str) -> str | None:
+    """Return why the commands must not run, or None if every file equals its copy at `ref`.
+
+    Every file the definition was built from (the root and all parts) is compared with the
+    committed bytes, so what runs is what git holds. A part reached through a symlink is
+    looked up at its real path, which must be in the same repository as the root definition,
+    and each symlink on the way must be the committed one.
     """
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(path.parent), "show", f"{ref}:./{path.name}"],
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            timeout=30,
-            check=False,
-        )
+        root_top = _toplevel(defn.base_dir)
+        for source, data in defn.sources.items():
+            real = source.resolve()
+            if source != defn.path:
+                if _toplevel(real.parent) != root_top:
+                    rel = source.relative_to(defn.base_dir).as_posix()
+                    return f"the included file '{rel}' is not in the definition's repository"
+                reason = _check_links(source, defn.base_dir, ref)
+                if reason:
+                    return reason
+            proc = _git(real.parent, "show", f"{ref}:./{real.name}")
+            if proc.returncode != 0:
+                return f"cannot read {real.name} at ref '{ref}': {_git_fail(proc)}"
+            if proc.stdout != data:
+                name = "the definition" if source == defn.path else (
+                    f"the included file '{source.relative_to(defn.base_dir).as_posix()}'"
+                )
+                return f"{name} differs from ref '{ref}'"
     except (OSError, subprocess.SubprocessError) as e:
-        return f"cannot run git: {e}", {}
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        msg = detail[-1] if detail else "git failed"
-        return f"cannot read {path.name} at ref '{ref}': {msg}", {}
-    try:
-        same = proc.stdout == path.read_bytes()
-    except OSError as e:
-        return f"cannot read {path}: {e.strerror}", {}
-    if not same:
-        return f"the definition differs from ref '{ref}'", {}
-    try:
-        states = tomllib.loads(proc.stdout.decode("utf-8"))["states"]
-    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError) as e:
-        return f"cannot parse {path.name} at ref '{ref}': {e}", {}
-    return None, states
+        return f"cannot run git: {e}"
+    return None
 
 
 def execute_state(
@@ -837,8 +1123,9 @@ def execute_state(
 ) -> dict | None:
     """Run the command of a state (if it has one) and return its record.
 
-    The command runs only if the definition file is identical to its copy at the run's ref
-    (checked on every call, so editing the file and using --force cannot smuggle in commands).
+    The command runs only if every file of the definition (the root and its parts) is identical
+    to its copy at the run's ref (checked on every call, so editing a file and using --force
+    cannot smuggle in commands). The definition was built from the bytes that were compared.
     Otherwise the command is only shown. A command that cannot start is reported, not raised.
     """
     if st.run is None:
@@ -853,18 +1140,13 @@ def execute_state(
         "exit_code": None, "stdout": "", "stderr": "", "stdout_truncated": 0,
         "stderr_truncated": 0, "stdout_file": None, "stderr_file": None,
     }
-    reason, committed = ("dry run", {}) if dry else _ref_check(defn.path, run.ref)
-    entry = committed.get(st.id)
-    if not reason and not (isinstance(entry, dict) and entry.get("run") == list(st.run)):
-        reason = f"the command differs from ref '{run.ref}'"
+    reason = "dry run" if dry else _ref_check(defn, run.ref)
     if reason:
         rec["reason"] = reason
         return rec
     rec["executed"] = True
-    # From the committed copy, not the (mutable) working file; ${DEF_DIR} is expanded last.
-    argv = expand_argv(list(entry["run"]), defn.base_dir)
-    rec["argv"] = argv
-    cwd = defn.base_dir / entry["cwd"] if entry.get("cwd") else Path(run.cwd or Path.cwd())
+    argv = rec["argv"]
+    cwd = defn.base_dir / st.cwd if st.cwd else Path(run.cwd or Path.cwd())
     try:
         proc = subprocess.Popen(
             argv,
@@ -927,7 +1209,7 @@ def start_run(
         cwd=str(Path.cwd()),
     )
     try:
-        run.definition_hash = _file_hash(defn.path)
+        run.definition_hash = defn.hash
         out = _enter(defn, run, state_dir, cmd)
         save_run(state_dir, run)
     except BaseException:
@@ -949,12 +1231,12 @@ def next_step(
     path = Path(run.definition)
     if not path.is_file():
         raise FlowError(f"definition not found: {path}")
-    new_hash = _file_hash(path)
+    defn = load_definition(path)
+    new_hash = defn.hash
     if new_hash != run.definition_hash and not force:
         raise FlowError(
             f"definition changed since the run started: {path} (use --force to continue anyway)"
         )
-    defn = load_definition(path)
     if run.current not in defn.states:
         raise FlowError(f"current state '{run.current}' no longer exists in the definition")
 

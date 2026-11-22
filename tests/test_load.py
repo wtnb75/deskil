@@ -104,7 +104,7 @@ def test_format_issue(flow):
 
 def test_load_reads_the_toml_once(flow, full_def, monkeypatch):
     calls = []
-    real = flow.read_toml
-    monkeypatch.setattr(flow, "read_toml", lambda p: calls.append(p) or real(p))
+    real = flow.read_source
+    monkeypatch.setattr(flow, "read_source", lambda p: calls.append(p) or real(p))
     flow.load_definition(full_def)
     assert len(calls) == 1
