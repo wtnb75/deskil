@@ -316,6 +316,101 @@ def lint(bl: Backlog) -> list[Problem]:
 
 
 # ---------------------------------------------------------------------------
+# set / archive
+# ---------------------------------------------------------------------------
+
+SETTABLE_KEYS = ("状態", "優先度", "依存", "完了", "PR")
+PLACEHOLDER = "（なし）"
+
+
+def _edit_field(text: str, item_id: str, key: str, value: str) -> str:
+    """Replace the `key` line of an item, or insert it after the nearest earlier field in FIELD_ORDER."""
+    bl = parse(text)
+    item = find_item(bl, item_id)
+    lines = bl.lines
+    new = f"- {key}: {value}"
+    for k, _, no in item.fields:
+        if k == key:
+            lines[no] = new
+            return "\n".join(lines)
+    order = FIELD_ORDER.index(key)
+    anchor = item.start
+    for k, _, no in item.fields:
+        if k in FIELD_ORDER and FIELD_ORDER.index(k) < order:
+            anchor = max(anchor, no)
+    lines.insert(anchor + 1, new)
+    return "\n".join(lines)
+
+
+def set_field(text: str, item_id: str, key: str, value: str) -> str:
+    """Set one single-line field of an item. Every other line is left as it is."""
+    if "\n" in value or "\r" in value:
+        raise BacklogError("the value must not contain a newline")
+    if key not in SETTABLE_KEYS:
+        raise BacklogError(f"cannot set {key} (allowed: {', '.join(SETTABLE_KEYS)})")
+    item = find_item(parse(text), item_id)
+    if key == "優先度" and value not in PRIORITIES:
+        raise BacklogError(f"invalid 優先度 {value!r} (use {', '.join(PRIORITIES)})")
+    if key == "状態":
+        if value in ("done", "dropped"):
+            raise BacklogError(f"use 'archive {item_id}' to make an item {value}")
+        if value not in ("todo", "ready"):
+            raise BacklogError(f"invalid 状態 {value!r} (use todo, ready)")
+        if item.section == SECTION_ARCHIVE:
+            raise BacklogError(f"{item_id} is archived; its 状態 cannot be changed")
+    return _edit_field(text, item_id, key, value)
+
+
+def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: date) -> str:
+    """Mark an active item done or dropped and move its block to the end of the archive section."""
+    if outcome not in ("done", "dropped"):
+        raise BacklogError("the outcome must be done or dropped")
+    item = find_item(parse(text), item_id)
+    if item.section != SECTION_ACTIVE:
+        raise BacklogError(f"{item_id} is already archived")
+    if outcome == "done" and pr is None:
+        raise BacklogError("archiving an item as done needs --pr N")
+    if outcome == "dropped":
+        if pr is not None:
+            raise BacklogError("--pr is only for done items")
+        if not (item.get("判断") or "").strip():
+            raise BacklogError(f"write the 判断 of {item_id} (why it is dropped) before archiving it")
+
+    text = _edit_field(text, item_id, "状態", outcome)
+    if outcome == "done":
+        text = _edit_field(text, item_id, "完了", today.isoformat())
+        text = _edit_field(text, item_id, "PR", f"#{pr}")
+
+    bl = parse(text)
+    item = find_item(bl, item_id)
+    lines = bl.lines
+    block = lines[item.start : item.end]
+    del lines[item.start : item.end]
+    while block and not block[-1].strip():
+        block.pop()
+
+    try:
+        head = lines.index(f"## {SECTION_ARCHIVE}")
+    except ValueError:
+        raise BacklogError(f"the '## {SECTION_ARCHIVE}' section was not found") from None
+    end = next((n for n in range(head + 1, len(lines)) if lines[n].startswith("## ")), len(lines))
+    for n in range(head + 1, end):
+        if lines[n].strip() == PLACEHOLDER:
+            del lines[n]
+            end -= 1
+            if n < end and not lines[n].strip():
+                del lines[n]
+                end -= 1
+            break
+    pos = end
+    while pos > head + 1 and not lines[pos - 1].strip():
+        pos -= 1
+    tail = lines[pos:]
+    lines[pos:pos] = [""] + block + ([] if tail and not tail[0].strip() else [""])
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # command line
 # ---------------------------------------------------------------------------
 
@@ -344,12 +439,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_show.add_argument("id")
 
     sub.add_parser("lint", help="check the backlog format (exit 1 when there are problems)")
+
+    p_set = sub.add_parser("set", help="set one single-line field of an item")
+    p_set.add_argument("id")
+    p_set.add_argument("key", help=f"one of: {', '.join(SETTABLE_KEYS)}")
+    p_set.add_argument("value")
+
+    p_archive = sub.add_parser("archive", help="move an item to the done / dropped section")
+    p_archive.add_argument("id")
+    outcome = p_archive.add_mutually_exclusive_group(required=True)
+    outcome.add_argument("--done", action="store_true")
+    outcome.add_argument("--dropped", action="store_true")
+    p_archive.add_argument("--pr", type=int, help="pull request number (required with --done)")
     return parser
+
+
+def write_checked(path: Path, old: str, new: str) -> None:
+    """Write `new` unless it introduces a lint problem that `old` did not have."""
+    known = {p.message for p in lint(parse(old))}
+    added = [p.message for p in lint(parse(new)) if p.message not in known]
+    if added:
+        raise BacklogError("refusing to write; the change would introduce: " + "; ".join(added))
+    try:
+        path.write_text(new, encoding="utf-8")
+    except OSError as exc:
+        raise BacklogError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
 
 def run(args: argparse.Namespace) -> int:
     path = Path(args.file)
-    _, bl = read_backlog(path)
+    text, bl = read_backlog(path)
     if args.command == "next-id":
         print(next_id(bl))
     elif args.command == "list":
@@ -369,6 +488,11 @@ def run(args: argparse.Namespace) -> int:
         for problem in problems:
             print(f"{args.file}:{problem.line}: {problem.message}")
         return 1 if problems else 0
+    elif args.command == "set":
+        write_checked(path, text, set_field(text, args.id, args.key, args.value))
+    elif args.command == "archive":
+        outcome = "done" if args.done else "dropped"
+        write_checked(path, text, archive_item(text, args.id, outcome, args.pr, date.today()))
     return 0
 
 

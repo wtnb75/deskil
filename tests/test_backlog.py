@@ -1,6 +1,7 @@
 """Tests for shared/backlog/backlog.py."""
 
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -232,6 +233,155 @@ def test_cli_lint_exit_codes_and_format(backlog, tmp_path, capsys):
     assert len(out) == 1
     assert out[0].startswith(f"{bad}:")
     assert "B-003: missing 優先度" in out[0]
+
+
+# --- set -------------------------------------------------------------------
+
+
+def changed_lines(before: str, after: str) -> list[tuple[str, str]]:
+    old, new = before.split("\n"), after.split("\n")
+    assert len(old) == len(new)
+    return [(a, b) for a, b in zip(old, new) if a != b]
+
+
+def test_set_replaces_only_that_line(backlog):
+    out = backlog.set_field(SAMPLE, "B-002", "優先度", "P2")
+    assert changed_lines(SAMPLE, out) == [("- 優先度: P1", "- 優先度: P2")]
+
+
+def test_set_inserts_missing_field_in_order(backlog):
+    out = backlog.set_field(SAMPLE, "B-003", "依存", "B-001")
+    lines = out.split("\n")
+    at = lines.index("- 依存: B-001", lines.index("### B-003 Third"))
+    assert lines[at - 1] == "- 優先度: P3" and lines[at + 1] == "- 追加: 2026-11-03"
+    assert len(lines) == len(SAMPLE.split("\n")) + 1
+
+    no_priority = SAMPLE.replace("- 優先度: P3\n", "", 1)
+    lines = backlog.set_field(no_priority, "B-003", "優先度", "P1").split("\n")
+    at = lines.index("- 優先度: P1", lines.index("### B-003 Third"))
+    assert lines[at - 1] == "- 状態: todo" and lines[at + 1] == "- 追加: 2026-11-03"
+
+
+@pytest.mark.parametrize(
+    "item,key,value,message",
+    [
+        ("B-002", "優先度", "P1\n- 状態: done", "newline"),  # Review focus: a value must stay on one line
+        ("B-099", "優先度", "P1", "B-099"),
+        ("B-002", "背景", "x", "cannot set"),
+        ("B-002", "優先度", "P9", "P1, P2, P3"),
+        ("B-002", "状態", "wip", "todo, ready"),
+        ("B-002", "状態", "done", "archive"),
+        ("B-002", "状態", "dropped", "archive"),
+        ("B-004", "状態", "todo", "archived"),
+    ],
+)
+def test_set_rejects(backlog, item, key, value, message):
+    with pytest.raises(backlog.BacklogError, match=message):
+        backlog.set_field(SAMPLE, item, key, value)
+
+
+# --- archive ---------------------------------------------------------------
+
+TODAY = date(2026, 11, 22)
+
+
+def test_archive_done_moves_block_and_adds_completion_fields(backlog):
+    out = backlog.archive_item(SAMPLE, "B-001", "done", 7, TODAY)
+    bl = backlog.parse(out)
+    moved = next(i for i in bl.items if i.id == "B-001")
+    assert moved.section == backlog.SECTION_ARCHIVE
+    assert [i.id for i in bl.items] == ["B-002", "B-003", "B-004", "B-001"]
+    assert (moved.get("状態"), moved.get("完了"), moved.get("PR")) == ("done", "2026-11-22", "#7")
+    assert moved.get("判断") == "decided"
+    assert backlog.lint(bl) == []
+
+
+def test_archive_leaves_other_text_untouched(backlog):
+    block = backlog.render_show(backlog.parse(SAMPLE), "B-001") + "\n\n"
+    out = backlog.archive_item(SAMPLE, "B-001", "done", 7, TODAY)
+    assert out.startswith(SAMPLE.replace(block, "", 1))
+    assert out.endswith("\n") and not out.endswith("\n\n")
+
+
+def test_archive_dropped_requires_judgement(backlog):
+    with pytest.raises(backlog.BacklogError, match="判断"):
+        backlog.archive_item(SAMPLE, "B-003", "dropped", None, TODAY)
+    out = backlog.archive_item(SAMPLE, "B-001", "dropped", None, TODAY)
+    moved = next(i for i in backlog.parse(out).items if i.id == "B-001")
+    assert moved.get("状態") == "dropped" and moved.get("PR") is None
+    assert backlog.lint(backlog.parse(out)) == []
+
+
+def test_archive_into_empty_section_removes_placeholder(backlog):
+    # Review focus: an empty archive section holds a "（なし）" placeholder.
+    block = backlog.render_show(backlog.parse(SAMPLE), "B-004") + "\n"
+    empty = SAMPLE.replace(block, "（なし）\n", 1)
+    assert "（なし）" in empty
+    out = backlog.archive_item(empty, "B-001", "done", 7, TODAY)
+    assert "（なし）" not in out
+    assert out.count("## done / dropped\n\n### B-001 First\n") == 1
+    assert backlog.lint(backlog.parse(out)) == []
+
+
+def test_archive_inserts_before_the_next_section(backlog):
+    text = SAMPLE + "\n## Appendix\n\nnotes\n"
+    out = backlog.archive_item(text, "B-001", "done", 7, TODAY)
+    assert out.endswith("- PR: #7\n\n## Appendix\n\nnotes\n")
+    assert backlog.lint(backlog.parse(out)) == []
+
+
+@pytest.mark.parametrize(
+    "item,outcome,pr,message",
+    [
+        ("B-001", "done", None, "--pr"),
+        ("B-001", "dropped", 7, "--pr"),
+        ("B-004", "done", 7, "already"),
+        ("B-099", "done", 7, "B-099"),
+        ("B-001", "wip", None, "done or dropped"),
+    ],
+)
+def test_archive_rejects(backlog, item, outcome, pr, message):
+    with pytest.raises(backlog.BacklogError, match=message):
+        backlog.archive_item(SAMPLE, item, outcome, pr, TODAY)
+
+
+# --- CLI: set / archive ----------------------------------------------------
+
+
+def test_cli_set_writes_file(backlog, tmp_path):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "set", "B-003", "優先度", "P1"]) == 0
+    assert path.read_text(encoding="utf-8") == backlog.set_field(SAMPLE, "B-003", "優先度", "P1")
+
+
+def test_cli_set_does_not_write_when_it_would_introduce_a_lint_problem(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "set", "B-003", "依存", "B-099"]) == 2
+    assert "unknown dependency B-099" in capsys.readouterr().err
+    assert path.read_text(encoding="utf-8") == SAMPLE
+
+
+def test_cli_set_ignores_problems_that_were_already_there(backlog, tmp_path):
+    broken = SAMPLE.replace("- PR: #1\n", "", 1)
+    path = write(tmp_path, broken)
+    assert backlog.main(["--file", str(path), "set", "B-003", "優先度", "P1"]) == 0
+
+
+def test_cli_set_error_leaves_file_untouched(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "set", "B-002", "優先度", "P1\nx"]) == 2
+    assert "newline" in capsys.readouterr().err
+    assert backlog.main(["--file", str(path), "set", "B-099", "優先度", "P1"]) == 2
+    assert path.read_text(encoding="utf-8") == SAMPLE
+
+
+def test_cli_archive(backlog, tmp_path):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "archive", "B-001", "--done", "--pr", "7"]) == 0
+    text = path.read_text(encoding="utf-8")
+    assert f"- 完了: {date.today().isoformat()}" in text and "- PR: #7" in text
+    assert backlog.lint(backlog.parse(text)) == []
+    assert backlog.main(["--file", str(path), "archive", "B-002", "--dropped"]) == 2  # no 判断 yet
 
 
 # --- CLI -------------------------------------------------------------------
