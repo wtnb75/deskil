@@ -45,6 +45,8 @@ uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without ru
 uv run flow.py test <flow.toml> <scenarios.toml>      # check [[scenario]] name/choices/expect against the flow
 uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
 uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
+uv run flow.py new <flow.toml>                        # write a template definition (never overwrites)
+uv run flow.py fmt <flow.toml> [--check]              # sort keys, normalise layout, keep comments
 uv run flow.py runs                                   # list runs (id, status, updated, definition)
 uv run flow.py gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
 uv run flow.py stats RUN_ID --json                    # per-state visits and on_exceed entries of a run

@@ -2224,6 +2224,242 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# new / fmt
+# ---------------------------------------------------------------------------
+
+# Canonical key order per kind of table; keys not listed keep their order after the listed ones.
+FMT_ORDER = {
+    "top": ("schema", "start"),
+    "notes": ("always", "common"),
+    "arg": ("required", "default"),
+    "state": (
+        "prompt",
+        "notes",
+        "delegate",
+        "gate",
+        "run",
+        "timeout",
+        "cwd",
+        "output_lines",
+        "include",
+        "exits",
+        "goto",
+        "end",
+        "max_visits",
+        "on_exceed",
+    ),
+    "choice": ("label", "when", "goto"),
+}
+FMT_KEY_RE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*)$")
+
+NEW_TEMPLATE = """\
+schema = 1
+start = "do_work"
+
+[states.do_work]
+prompt = "Describe what to do at this step."
+goto = "check"
+
+[states.check]
+prompt = "Check the result of the previous step."
+
+[[states.check.choices]]
+label = "pass"
+when = "The result is correct"
+goto = "report"
+
+[[states.check.choices]]
+label = "fail"
+when = "The result is not correct"
+goto = "fix"
+
+[states.fix]
+prompt = "Find the cause and fix it."
+goto = "check"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.report]
+prompt = "Report the result."
+end = true
+
+[states.report_fail]
+prompt = "Report that the work could not be completed."
+end = true
+"""
+
+
+def new_definition(path: Path) -> None:
+    """Write a template definition; never overwrite an existing file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Mode "x" fails if the path exists (a symlink included), so nothing is overwritten.
+        with open(path, "x", encoding="utf-8") as f:
+            f.write(NEW_TEMPLATE)
+    except FileExistsError:
+        raise FlowError(f"already exists: {path}") from None
+
+
+def _advance(line: str, delim: str | None, depth: int) -> tuple[str | None, int]:
+    """Scan one line of a TOML value; return the open multi-line string delimiter and bracket depth."""
+    i = 0
+    while i < len(line):
+        if delim:
+            if delim == '"""' and line[i] == "\\":
+                i += 2
+            elif line.startswith(delim, i):
+                i += 3
+                # Up to two extra quotes may directly precede the closing delimiter.
+                while i < len(line) and line[i] == delim[0]:
+                    i += 1
+                delim = None
+            else:
+                i += 1
+            continue
+        ch = line[i]
+        if line.startswith('"""', i) or line.startswith("'''", i):
+            delim = line[i : i + 3]
+            i += 3
+        elif ch in "\"'":
+            i += 1
+            while i < len(line) and line[i] != ch:
+                i += 2 if ch == '"' and line[i] == "\\" else 1
+            i += 1
+        elif ch == "#":
+            break
+        else:
+            depth += (ch in "[{") - (ch in "]}")
+            i += 1
+    return delim, depth
+
+
+def _trim_blank(lines: list[str]) -> list[str]:
+    """Drop blank lines at both ends and trailing spaces of the (comment) lines."""
+    out = [ln.rstrip() for ln in lines]
+    while out and not out[0]:
+        out.pop(0)
+    while out and not out[-1]:
+        out.pop()
+    return out
+
+
+def _table_kind(header: str | None) -> str | None:
+    if header is None:
+        return "top"
+    name = _split_comment(header)[0].strip().strip("[]")
+    parts = [p.strip().strip("\"'") for p in name.split(".")]
+    if parts == ["notes"]:
+        return "notes"
+    if parts[0] == "args" and len(parts) == 2:
+        return "arg"
+    if parts[0] == "states" and len(parts) == 2:
+        return "state"
+    if parts[0] == "states" and len(parts) == 3 and parts[2] == "choices":
+        return "choice"
+    return None
+
+
+def _format_entry(lines: list[str], key: str, rest: str) -> list[str]:
+    """Normalise `key = value` on the first line unless it carries a comment; keep the value as is."""
+    first = lines[0]
+    if not _split_comment(first)[1]:
+        first = f"{key} = {rest}"
+        if len(lines) == 1:
+            first = first.rstrip()
+    return [first, *lines[1:]]
+
+
+def format_text(text: str) -> str:
+    """Sort the keys of each known table and normalise the layout of a definition.
+
+    Line based: a comment stays with the key below it, a line that has a trailing
+    comment is kept as is, and multi-line strings are never touched.
+    """
+    lines = text.splitlines()
+    # Each section: [header, leading comments, entries, trailing comments];
+    # the first one holds the top-level keys.
+    sections: list[list] = [[None, [], [], []]]
+    trivia: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            trivia.append(line)
+            i += 1
+        elif stripped.startswith("["):
+            # Only comments that touch the header belong to it; the rest end the previous table.
+            cut = max((n + 1 for n, t in enumerate(trivia) if not t.strip()), default=0)
+            sections[-1][3] = _trim_blank(trivia[:cut])
+            sections.append([stripped, _trim_blank(trivia[cut:]), [], []])
+            trivia = []
+            i += 1
+        else:
+            m = FMT_KEY_RE.match(line)
+            if not m:
+                raise FlowError(
+                    f"cannot format line {i + 1}: only bare keys are supported"
+                )
+            delim, depth = _advance(m.group(2), None, 0)
+            j = i + 1
+            while (delim or depth > 0) and j < len(lines):
+                delim, depth = _advance(lines[j], delim, depth)
+                j += 1
+            entry = (
+                m.group(1),
+                _trim_blank(trivia),
+                _format_entry(lines[i:j], m.group(1), m.group(2)),
+            )
+            sections[-1][2].append(entry)
+            trivia = []
+            i = j
+    blocks: list[list[str]] = []
+    for header, lead, entries, tail in sections:
+        order = FMT_ORDER.get(_table_kind(header) or "", ())
+        entries = sorted(
+            entries, key=lambda e: order.index(e[0]) if e[0] in order else len(order)
+        )
+        block = lead + ([header] if header else [])
+        for _, comments, body in entries:
+            block += comments + body
+        block += tail
+        if block:
+            blocks.append(block)
+    if _trim_blank(trivia):
+        blocks.append(_trim_blank(trivia))
+    return "\n\n".join("\n".join(b) for b in blocks) + "\n"
+
+
+def format_definition(path: Path, check: bool = False) -> bool:
+    """Format a definition file in place; return True if it changed (or would, with check).
+
+    The result must parse to the same data as the original, otherwise the file is left untouched.
+    """
+    path = Path(path)
+    data = read_source(path)
+    before = parse_toml(path, data)
+    old = data.decode("utf-8")
+    new = format_text(old)
+    try:
+        same = tomllib.loads(new) == before
+    except tomllib.TOMLDecodeError:
+        same = False
+    if not same:
+        raise FlowError(f"formatting would change the meaning; {path} was not changed")
+    if new == old:
+        return False
+    if not check:
+        tmp = path.with_name(path.name + ".fmt.tmp")
+        try:
+            tmp.write_bytes(new.encode("utf-8"))
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+    return True
+
+
+# ---------------------------------------------------------------------------
 # command line
 # ---------------------------------------------------------------------------
 
@@ -2353,6 +2589,21 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("definition", type=Path)
     p.add_argument("old")
     p.add_argument("new")
+
+    p = sub.add_parser(
+        "new", help="write a template definition (fails if the file exists)"
+    )
+    p.add_argument("definition", type=Path)
+
+    p = sub.add_parser(
+        "fmt", help="sort the keys and normalise the layout of a definition in place"
+    )
+    p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="do not write; exit 1 if the file would change",
+    )
     return parser
 
 
@@ -2386,6 +2637,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "rename":
             rename_state(args.definition, args.old, args.new)
             print(f"renamed {args.old} -> {args.new}")
+            return 0
+        if args.command == "new":
+            new_definition(args.definition)
+            print(f"created {args.definition}")
+            return 0
+        if args.command == "fmt":
+            changed = format_definition(args.definition, args.check)
+            if args.check:
+                if changed:
+                    print(f"would reformat {args.definition}")
+                return 1 if changed else 0
+            print(f"{'formatted' if changed else 'unchanged'} {args.definition}")
             return 0
         if args.command == "dry-run":
             results = None
