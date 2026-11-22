@@ -424,6 +424,33 @@ def format_issue(issue: Issue) -> str:
     return f"{issue.level}[{issue.code}] {issue.where}: {issue.message}"
 
 
+LINT_FORMATS = ("text", "json", "github")
+
+
+def _gh_data(text: str) -> str:
+    """Escape the message of a GitHub Actions workflow command."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
+def _gh_property(text: str) -> str:
+    """Escape a property value (such as file=) of a GitHub Actions workflow command."""
+    return _gh_data(text).replace(":", "%3A").replace(",", "%2C")
+
+
+def format_lint(path: Path, issues: list[Issue], fmt: str) -> str:
+    """Render lint results. Issues carry no line numbers, so `github` points at the file only."""
+    if fmt == "json":
+        data = {"file": str(path), "issues": [asdict(i) for i in issues]}
+        return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    if fmt == "github":
+        return "".join(
+            f"::{i.level} file={_gh_property(str(path))}::"
+            f"{_gh_data(f'[{i.code}] {i.where}: {i.message}')}\n"
+            for i in issues
+        )
+    return "".join(format_issue(i) + "\n" for i in issues)
+
+
 # ---------------------------------------------------------------------------
 # loading definitions
 # ---------------------------------------------------------------------------
@@ -962,6 +989,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("lint", help="check a definition")
     p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--format",
+        choices=LINT_FORMATS,
+        default="text",
+        help="output format: text (default), json, or github (Actions workflow commands)",
+    )
 
     p = sub.add_parser("dry-run", help="show the steps without creating a run")
     p.add_argument("definition", type=Path)
@@ -981,9 +1014,13 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         if args.command == "lint":
-            issues = lint(args.definition)
-            for issue in issues:
-                print(format_issue(issue))
+            try:
+                issues = lint(args.definition)
+            except FlowError as e:
+                if args.format == "text":
+                    raise
+                issues = [Issue("error", "read-error", "(file)", str(e))]
+            sys.stdout.write(format_lint(args.definition, issues, args.format))
             return 1 if any(i.level == "error" for i in issues) else 0
         if args.command == "graph":
             sys.stdout.write(graph_mermaid(args.definition))

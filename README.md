@@ -40,7 +40,7 @@ state machine instead: the procedure lives in a `flow.toml`, and the engine
 prints only the current step, its notes, and the results the LLM can report.
 
 ```
-uv run flow.py lint <flow.toml>                       # find orphans, dead ends, bad references
+uv run flow.py lint <flow.toml> [--format text|json|github]  # find orphans, dead ends, bad references
 uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
 uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
 uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
