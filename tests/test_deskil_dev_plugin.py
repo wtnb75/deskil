@@ -71,6 +71,44 @@ def test_scripts_are_relative_symlinks_into_shared(script, target):
     assert link.resolve() == (ROOT / target).resolve()
 
 
+# --- flow paths ------------------------------------------------------------
+
+
+def test_add_happy_and_duplicate_paths(tmp_path):
+    assert visited(dry_run("backlog-add", ["new", "ok"], tmp_path)) == ["check_dup", "write", "lint", "report"]
+    assert visited(dry_run("backlog-add", ["duplicate", "ok"], tmp_path)) == [
+        "check_dup",
+        "update_existing",
+        "lint",
+        "report",
+    ]
+
+
+def test_add_lint_failures_end_in_report_fail(tmp_path):
+    out = dry_run("backlog-add", ["new", "errors", "errors", "errors"], tmp_path)
+    assert visited(out)[-1] == "report_fail"
+    assert visited(out).count("fix") == 2
+    assert out.endswith("Flow complete.\n")
+
+
+def test_prioritize_happy_path(tmp_path):
+    out = dry_run("backlog-prioritize", ["approved", "ok"], tmp_path)
+    assert visited(out) == ["survey", "propose", "confirm", "apply", "lint", "report"]
+    assert out.endswith("Flow complete.\n")
+
+
+def test_prioritize_revision_limit_leaves_the_backlog_unchanged(tmp_path):
+    out = dry_run("backlog-prioritize", ["revise", "revise", "revise"], tmp_path)
+    assert visited(out)[-1] == "report_unchanged"
+    assert "apply" not in visited(out)
+
+
+def test_prioritize_lint_failures_end_unchanged_report(tmp_path):
+    out = dry_run("backlog-prioritize", ["approved", "errors", "errors", "errors"], tmp_path)
+    assert visited(out)[-1] == "report_unchanged"
+    assert visited(out).count("fix_prio") == 2
+
+
 # --- skills (the ones that exist so far) -----------------------------------
 
 
@@ -87,6 +125,8 @@ def test_skill_runs_the_flow(skill):
     text = (DEV / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
     assert f"${{CLAUDE_PLUGIN_ROOT}}/skills/{skill}/flow.toml" in text
     assert "flow.py start" in text and "Flow complete." in text
+    # The engine does not expand paths in prompts, so SKILL.md tells the LLM what `backlog.py` means.
+    assert "`backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`" in text
 
 
 @pytest.mark.parametrize("skill", PRESENT)

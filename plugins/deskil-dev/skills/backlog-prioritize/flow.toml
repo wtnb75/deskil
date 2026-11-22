@@ -1,0 +1,71 @@
+schema = 1
+start = "survey"
+
+[notes]
+always = [
+  "The backlog is docs/BACKLOG.md in the current project. Change priorities only with `backlog.py set <ID> 優先度 <P>`.",
+  "Never edit the backlog before the user has approved the proposal.",
+]
+
+[states.survey]
+prompt = """Run `backlog.py list` to see the todo and ready items (blocked items are marked).
+Read an item with `backlog.py show <ID>` only when you need its details to judge its priority."""
+goto = "propose"
+
+[states.propose]
+prompt = """For each item decide P1, P2 or P3 and write a one-line reason.
+- Raise items that other items depend on, and items that fix a problem people already hit.
+- Lower items with a small effect or a large cost.
+- Priorities are relative: do not make everything P1.
+- A blocked item is not lower in priority just because it is blocked."""
+goto = "confirm"
+max_visits = 3
+on_exceed = "report_unchanged"
+
+[states.confirm]
+prompt = """Show the proposal as a table (ID, title, current priority, proposed priority, reason),
+listing only the items whose priority would change.
+Ask the user to approve or correct it, and wait for the answer. Do not edit the backlog yet."""
+
+[[states.confirm.choices]]
+label = "approved"
+when = "The user approved the proposal (any corrections they made are already folded in)"
+goto = "apply"
+
+[[states.confirm.choices]]
+label = "revise"
+when = "The user wants a different proposal"
+goto = "propose"
+
+[states.apply]
+prompt = """For each item whose priority changes, run `backlog.py set <ID> 優先度 <P>`.
+Do not touch items that stay as they are."""
+goto = "lint"
+
+[states.lint]
+prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint printed nothing"
+goto = "report"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint printed one or more problems"
+goto = "fix_prio"
+
+[states.fix_prio]
+prompt = "Read the problems that `backlog.py lint` printed (file:line: message) and fix their causes with Edit or `backlog.py set`."
+goto = "lint"
+max_visits = 2
+on_exceed = "report_unchanged"
+
+[states.report]
+prompt = "Report which items changed priority (ID: old -> new), then show the result of `backlog.py list`."
+end = true
+
+[states.report_unchanged]
+prompt = """Report that the priorities were not (fully) changed: the user did not settle on a proposal, or the backlog failed lint.
+If some edits were already applied, list them and any remaining lint problems."""
+end = true
