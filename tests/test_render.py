@@ -76,6 +76,26 @@ def test_render_choices(flow, notes_def):
     )
 
 
+def test_render_delegate(flow, write_def, tmp_path):
+    p = write_def(tmp_path, PLAIN.replace('prompt = "Do A"\n', 'prompt = "Do A"\ndelegate = "reviewer"\n'))
+    assert render(flow, p, "a") == (
+        "[a] (run: R1)\n"
+        "Do A\n"
+        "\n"
+        "Delegate: hand this step to the subagent `reviewer` (Agent tool, subagent_type = reviewer). "
+        "Give it this whole step text. It does the work, runs the command shown below, "
+        "and returns that command's output to you. Continue from that output.\n"
+        "\n"
+        "After finishing the work, run:\n"
+        "  flow next R1\n"
+    )
+
+
+def test_render_without_delegate_has_no_delegate_section(flow, write_def, tmp_path):
+    p = write_def(tmp_path, PLAIN)
+    assert "Delegate" not in render(flow, p, "a")
+
+
 def test_render_no_choices_goto(flow, write_def, tmp_path):
     p = write_def(tmp_path, PLAIN)
     assert render(flow, p, "a") == (

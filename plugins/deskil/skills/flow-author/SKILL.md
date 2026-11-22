@@ -50,7 +50,7 @@ Rules:
 - Labels match `[A-Za-z0-9_]+`. Every choice needs a `when` that says exactly when to pick it.
 - Each state has exactly one of `goto`, `[[choices]]`, or `end = true`.
 - Put long text in a file: `prompt = { file = "prompts/step.md" }`. Paths are relative to the definition and must stay inside its directory.
-- `delegate` is reserved and not supported yet.
+- `delegate = "<agent name>"` hands a state to a subagent. The rendered step tells the caller to give the whole step text to that agent, which runs the `next` command itself and returns its output. The agent's model and tools live in the plugin's `agents/` definition, not in the flow. An end state cannot have `delegate`.
 
 ## 3. Check it
 
