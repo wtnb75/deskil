@@ -1619,6 +1619,118 @@ def graph_mermaid(defn_path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# export: write a definition back as plain skill instructions
+# ---------------------------------------------------------------------------
+
+# The only wording the export owns. Everything else is copied from the definition
+# or written with symbols (`->`, ids in backticks), so a round trip does not depend on a language.
+EXPORT_WORDS = {
+    "en": {
+        "start": "Start at `{id}`.",
+        "always": "Notes for every step:",
+        "notes": "Notes:",
+        "end": "(End of the procedure.)",
+        "limit": "(at most {n} times → `{target}`)",
+        "unenforced": "Not enforced without the flow engine: {items}.",
+        "run": "Run `{cmd}` first.",
+        "delegate": "Hand this step to the subagent `{name}`.",
+    },
+    "ja": {
+        "start": "`{id}` から始める。",
+        "always": "すべての手順に共通する注意:",
+        "notes": "注意:",
+        "end": "（手順はここで終わり。）",
+        "limit": "（最大 {n} 回 → `{target}`）",
+        "unenforced": "flow エンジンがないと強制されない: {items}。",
+        "run": "まず `{cmd}` を実行する。",
+        "delegate": "この手順はサブエージェント `{name}` に任せる。",
+    },
+}
+EXPORT_LANGS = ("auto", *EXPORT_WORDS)
+_CJK_RE = re.compile(r"[぀-ヿ]")
+
+
+def detect_export_lang(texts: list[str]) -> str:
+    """`ja` if any text has kana (kanji alone also appears in English prose), else `en`."""
+    return "ja" if any(_CJK_RE.search(t) for t in texts) else "en"
+
+
+def export_skill(defn_path: Path, lang: str = "auto") -> tuple[str, list[str]]:
+    """Write a definition as skill instructions that need no engine.
+
+    Returns (markdown, dropped): `dropped` lists what the text can no longer enforce.
+    Each state is a `## <id>` section; a choice is "- `label` → `goto`: when",
+    a plain transition is "→ `goto`", and a visit limit is `(at most N times → target)`.
+    """
+    if lang not in EXPORT_LANGS:
+        raise FlowError(
+            f"unknown language {lang!r} (choose from {', '.join(EXPORT_LANGS)})"
+        )
+    defn = load_definition(defn_path)
+    base = defn.base_dir
+
+    def text(value: Text) -> str:
+        return read_text_value(value, base)
+
+    if lang == "auto":
+        samples = [text(s.prompt) for s in defn.states.values()]
+        samples += [text(c.when) for s in defn.states.values() for c in s.choices]
+        lang = detect_export_lang(samples)
+    w = EXPORT_WORDS[lang]
+
+    dropped: list[str] = []
+    if len(defn.sources) > 1:
+        dropped.append(
+            "include: the parts were merged into one text (ids may be prefixed)"
+        )
+    out = [w["start"].format(id=defn.start)]
+    always_texts = [text(n) for n in defn.always]
+    if always_texts:
+        out += ["", w["always"], *(f"- {t}" for t in always_texts)]
+    for st in defn.states.values():
+        out += ["", f"## {st.id}", ""]
+        if isinstance(st.prompt, dict):
+            dropped.append(
+                f"state {st.id}: the prompt file {st.prompt['file']} was copied in"
+            )
+        if st.run is not None:
+            out += [w["run"].format(cmd=shlex.join(st.run)), ""]
+        if st.delegate:
+            out += [w["delegate"].format(name=st.delegate), ""]
+        out.append(text(st.prompt))
+        notes: list[str] = []
+        for item in [*st.always, *(defn.common[n] for n in st.notes)]:
+            t = text(item)
+            if t not in notes and t not in always_texts:
+                notes.append(t)
+        if notes:
+            out += ["", w["notes"], *(f"- {n}" for n in notes)]
+        out.append("")
+        if st.end:
+            out.append(w["end"])
+        elif st.choices:
+            out += [f"- `{c.label}` → `{c.goto}`: {text(c.when)}" for c in st.choices]
+        else:
+            out.append(f"→ `{st.goto}`")
+        unenforced: list[str] = []
+        if st.max_visits is not None:
+            out.append(w["limit"].format(n=st.max_visits, target=st.on_exceed))
+            unenforced.append("max_visits")
+            dropped.append(
+                f"state {st.id}: max_visits {st.max_visits} is no longer enforced (on_exceed: {st.on_exceed})"
+            )
+        if st.run is not None:
+            unenforced.append("run")
+            dropped.append(f"state {st.id}: run is no longer executed by the engine")
+        if st.delegate:
+            unenforced.append("delegate")
+            dropped.append(f"state {st.id}: delegate is no longer set up by the engine")
+        if unenforced:
+            out.append(w["unenforced"].format(items=", ".join(unenforced)))
+    return "\n".join(out) + "\n", dropped
+
+
+# ---------------------------------------------------------------------------
 # rename
 # ---------------------------------------------------------------------------
 
@@ -1801,6 +1913,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("definition", type=Path)
 
+    p = sub.add_parser(
+        "export",
+        help="print the definition as plain skill instructions (the dropped items go to stderr)",
+    )
+    p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--lang",
+        choices=EXPORT_LANGS,
+        default="auto",
+        help="wording of the few fixed phrases (default: auto, from the prompts)",
+    )
+
     p = sub.add_parser("rename", help="rename a state and all references to it")
     p.add_argument("definition", type=Path)
     p.add_argument("old")
@@ -1822,6 +1946,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if any(i.level == "error" for i in issues) else 0
         if args.command == "graph":
             sys.stdout.write(graph_mermaid(args.definition))
+            return 0
+        if args.command == "export":
+            body, dropped = export_skill(args.definition, args.lang)
+            sys.stdout.write(body)
+            if dropped:
+                print("dropped information:", file=sys.stderr)
+                for line in dropped:
+                    print(f"- {line}", file=sys.stderr)
             return 0
         if args.command == "rename":
             rename_state(args.definition, args.old, args.new)

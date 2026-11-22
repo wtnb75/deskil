@@ -6,7 +6,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE = ROOT / "plugins" / "deskil"
-SKILLS = ["flow-author", "flow-review", "flow-convert"]
+SKILLS = ["flow-author", "flow-review", "flow-convert", "flow-export"]
 
 
 def frontmatter(path: Path) -> dict[str, str]:
@@ -65,4 +65,19 @@ def test_convert_skill_covers_split_rule_and_verification():
 def test_review_skill_covers_review_and_debug_commands():
     text = (CORE / "skills" / "flow-review" / "SKILL.md").read_text(encoding="utf-8")
     for needle in ("flow.py lint", "flow.py dry-run", "--results", "flow.py status"):
+        assert needle in text
+
+
+def test_export_skill_covers_export_report_and_round_trip():
+    text = (CORE / "skills" / "flow-export" / "SKILL.md").read_text(encoding="utf-8")
+    for needle in (
+        "flow.py export",
+        "flow.py lint",
+        "flow.py graph",
+        "flow.py dry-run",
+        "dropped information",
+        "max_visits",
+        "delegate",
+        "--lang",
+    ):
         assert needle in text
