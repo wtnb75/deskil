@@ -20,6 +20,42 @@ plugins/<name>/
   scripts/<file> -> ../../../shared/scripts/<file>   relative symlink
 ```
 
+## Plugins
+
+| Plugin | What it is |
+|---|---|
+| `core` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
+| `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
+| `feature-b` | Sample plugin that uses the shared script. |
+
+## Flow engine
+
+Skills are often written as long, numbered procedures. The flow engine
+(`shared/flow/flow.py`, Python 3.11+, standard library only) runs them as a
+state machine instead: the procedure lives in a `flow.toml`, and the engine
+prints only the current step, its notes, and the results the LLM can report.
+
+```
+uv run flow.py lint <flow.toml>                       # find orphans, dead ends, bad references
+uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
+uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
+uv run flow.py start <flow.toml>                      # start a run, print the first step
+uv run flow.py next <run-id> [--result <label>]       # report a result, print the next step
+uv run flow.py status <run-id>                        # where is this run?
+```
+
+Run state is stored in `.flow/runs/` of the working directory
+(override with `--state-dir` or `FLOW_STATE_DIR`). See
+`plugins/feature-a/skills/review-loop/` for a complete example, and
+`docs/superpowers/specs/2026-11-22-flow-engine-design.md` for the design (in Japanese).
+
+## Development
+
+```
+task test   # pytest
+task lint   # ruff
+```
+
 ## Notes
 
 - Shared scripts are bundled into each plugin through **relative symlinks**
