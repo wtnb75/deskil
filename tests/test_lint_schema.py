@@ -71,6 +71,23 @@ CASES = [
     ),
     ("when-missing", make(a='prompt = "A"\n' + choice(when="")), "when-missing"),
     ("on-exceed-missing", make(a=A + "max_visits = 2\n"), "on-exceed-missing"),
+    (
+        "on-exceed-without-max-visits",
+        make(a=A + 'on_exceed = "b"\n'),
+        "on-exceed-without-max-visits",
+    ),
+    ("end-with-on-exceed", make(b=B + 'on_exceed = "a"\n'), "end-with-transition"),
+    ("goto-not-a-string", make(a='prompt = "A"\ngoto = ["b"]\n'), "type"),
+    (
+        "on-exceed-not-a-string",
+        make(a=A + "max_visits = 2\non_exceed = { x = 1 }\n"),
+        "type",
+    ),
+    (
+        "choice-goto-not-a-string",
+        make(a='prompt = "A"\n[[states.a.choices]]\nlabel = "x"\nwhen = "w"\ngoto = ["b"]\n'),
+        "type",
+    ),
     ("prompt-missing", make(a='goto = "b"\n'), "prompt-missing"),
     (
         "file-missing",

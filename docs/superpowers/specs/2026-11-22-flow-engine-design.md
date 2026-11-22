@@ -39,6 +39,7 @@ Claude Code の skill の多くは、手順を文章で書いた手順書にな�
 ## 3. 制約
 
 - 実装は Python 3.11 以上、**標準ライブラリのみ**。`uv run` で実行できること。
+- `flow.py` の先頭に PEP 723 のスクリプトメタデータ（`requires-python = ">=3.11"`、`dependencies = []`）を置き、`uv run` が 3.11 以上を選ぶようにする。
 - エンジンは**単一ファイル**（`flow.py`）にする。feature プラグインへ symlink で同梱するため（[`README.md`](../../../README.md) 参照）。
 - 同梱するため、エンジンは**プラグイン外のファイルに依存しない**。ユーザーの設定ファイルを書き換えない。
 - 状態は、作業ディレクトリ（プロジェクト）側に保存する。プラグインのキャッシュには書かない。
@@ -169,9 +170,10 @@ After finishing the work, report the result with one of the following:
 - `schema` 欠落・未対応、`start` 欠落、未知のキー、予約キー（`delegate`）の使用
 - ID の形式違反、遷移先（`goto` / `on_exceed` / `start`）が存在しない
 - `goto` / `choices` / `end` が 0 個、または 2 個以上
-- `end` のステートに遷移がある
+- `end` のステートに遷移（`goto` / `choices` / `max_visits` / `on_exceed`）がある
 - `choices` の `label` 重複、`when` 欠落
 - `max_visits` があるのに `on_exceed` がない
+- `on_exceed` があるのに `max_visits` がない（`on_exceed` は上限を超えたときにだけ使われ、`max_visits` なしでは、行き先の判定が実行と食い違う）
 - `prompt` 欠落
 - `{ file }` のファイルが存在しない、または定義ディレクトリの外
 - `notes` の参照先が `common` にない

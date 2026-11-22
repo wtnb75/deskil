@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """flow: a deterministic state-machine runner for step-by-step skills.
 
 Single file, standard library only (Python 3.11+).
@@ -51,6 +55,8 @@ def read_toml(path: Path) -> dict:
             return tomllib.load(f)
     except OSError as e:
         raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
+    except UnicodeDecodeError as e:
+        raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
     except tomllib.TOMLDecodeError as e:
         raise FlowError(f"{path}: {e}") from e
 
@@ -95,6 +101,17 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
         _err(issues, "file-outside", where, f"'{value['file']}' is outside the definition directory")
     elif not target.is_file():
         _err(issues, "file-missing", where, f"file not found: {value['file']}")
+
+
+def _check_target(value: object, where: str, state_ids: set[str], issues: list[Issue]) -> None:
+    """A transition target must be the id of an existing state."""
+    if isinstance(value, str):
+        if value not in state_ids:
+            _err(issues, "missing-target", where, f"target state not found: {value!r}")
+    elif value is None:
+        _err(issues, "missing-target", where, "target state is missing")
+    else:
+        _err(issues, "type", where, "target must be a state id (a string)")
 
 
 def _check_notes(notes: object, base_dir: Path, issues: list[Issue]) -> set[str]:
@@ -144,9 +161,7 @@ def _check_choices(
             _err(issues, "when-missing", cw, "a choice needs 'when' (the criterion)")
         else:
             _check_text(ch["when"], f"{cw}.when", base_dir, issues)
-        goto = ch.get("goto")
-        if goto not in state_ids:
-            _err(issues, "missing-target", cw, f"goto target not found: {goto!r}")
+        _check_target(ch.get("goto"), f"{cw}.goto", state_ids, issues)
 
 
 def _check_state(
@@ -178,15 +193,20 @@ def _check_state(
     is_end = st.get("end") is True
     if "end" in st and not isinstance(st["end"], bool):
         _err(issues, "type", f"{where}.end", "end must be true or false")
-    if is_end and any(k in st for k in ("goto", "choices", "max_visits")):
-        _err(issues, "end-with-transition", where, "an end state cannot have goto/choices/max_visits")
+    if is_end and any(k in st for k in ("goto", "choices", "max_visits", "on_exceed")):
+        _err(
+            issues,
+            "end-with-transition",
+            where,
+            "an end state cannot have goto/choices/max_visits/on_exceed",
+        )
     else:
         count = sum(1 for k in ("goto", "choices") if k in st) + (1 if is_end else 0)
         if count != 1:
             _err(issues, "transition-count", where, "exactly one of goto / choices / end is required")
 
-    if "goto" in st and st["goto"] not in state_ids:
-        _err(issues, "missing-target", f"{where}.goto", f"goto target not found: {st['goto']!r}")
+    if "goto" in st:
+        _check_target(st["goto"], f"{where}.goto", state_ids, issues)
     if "choices" in st:
         _check_choices(st["choices"], where, state_ids, base_dir, issues)
 
@@ -195,8 +215,10 @@ def _check_state(
         _err(issues, "type", f"{where}.max_visits", "max_visits must be an integer >= 1")
     if "max_visits" in st and "on_exceed" not in st and not is_end:
         _err(issues, "on-exceed-missing", where, "max_visits requires on_exceed")
-    if "on_exceed" in st and st["on_exceed"] not in state_ids:
-        _err(issues, "missing-target", f"{where}.on_exceed", f"on_exceed target not found: {st['on_exceed']!r}")
+    if "on_exceed" in st:
+        _check_target(st["on_exceed"], f"{where}.on_exceed", state_ids, issues)
+        if "max_visits" not in st and not is_end:
+            _err(issues, "on-exceed-without-max-visits", where, "on_exceed has no effect without max_visits")
 
 
 def lint_schema(raw: dict, base_dir: Path) -> list[Issue]:
@@ -710,6 +732,26 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
 # ---------------------------------------------------------------------------
 
 
+def _split_comment(line: str) -> tuple[str, str]:
+    """Split a TOML line into (code, trailing comment); a # inside a string is not a comment."""
+    quote: str | None = None
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#":
+            return line[:i], line[i:]
+        i += 1
+    return line, ""
+
+
 def _rewrite_ids(text: str, old: str, new: str) -> str:
     """Rename a state id in table headers and in start/goto/on_exceed values.
 
@@ -717,7 +759,8 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
     """
     old_re = re.escape(old)
     head_re = re.compile(rf"^(\s*\[\[?\s*states\.){old_re}(?=[.\]\s])")
-    key_re = re.compile(rf"""(?<![\w."'-])(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\3""")
+    # A key must start the line, or follow `{` / `,` inside an inline table.
+    key_re = re.compile(rf"""(?:^|(?<=[{{,]))(\s*)(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\4""")
     out: list[str] = []
     delim: str | None = None  # open multi-line string delimiter, if inside one
     for line in text.splitlines(keepends=True):
@@ -727,8 +770,12 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
             out.append(line)
             continue
         if not line.lstrip().startswith("#"):
-            line = head_re.sub(lambda m: m.group(1) + new, line)
-            line = key_re.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{new}{m.group(3)}", line)
+            code, comment = _split_comment(line)
+            code = head_re.sub(lambda m: m.group(1) + new, code)
+            code = key_re.sub(
+                lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{new}{m.group(4)}", code
+            )
+            line = code + comment
             for d in ('"""', "'''"):
                 if line.count(d) % 2 == 1:
                     delim = d

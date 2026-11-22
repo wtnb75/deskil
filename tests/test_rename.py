@@ -66,6 +66,35 @@ def test_rename_leaves_prompt_text_and_comments_untouched(flow, p):
     assert "# [states.s3] is the final state" in text
 
 
+def test_rename_ignores_one_line_strings_and_trailing_comments(flow, write_def, tmp_path):
+    text = (
+        'schema = 1\nstart = "a"\n'
+        "[states.a]\nprompt = 'Set goto = \"b\" in the config'\n"
+        'goto = "b"  # was goto = "b"\n'
+        '[states.b]\nprompt = "B"\nend = true\n'
+    )
+    path = write_def(tmp_path, text)
+    flow.rename_state(path, "b", "bee")
+    out = path.read_text(encoding="utf-8")
+    assert "prompt = 'Set goto = \"b\" in the config'" in out
+    assert 'goto = "bee"  # was goto = "b"' in out
+    assert flow.lint(path) == []
+
+
+def test_rename_handles_inline_tables(flow, write_def, tmp_path):
+    text = (
+        'schema = 1\nstart = "a"\n'
+        '[states.a]\nprompt = "A"\n'
+        'choices = [{ label = "x", when = "w", goto = "b" }, { label = "y", when = "v", goto = "c" }]\n'
+        '[states.b]\nprompt = "B"\nend = true\n'
+        '[states.c]\nprompt = "C"\nend = true\n'
+    )
+    path = write_def(tmp_path, text)
+    flow.rename_state(path, "b", "bee")
+    assert 'goto = "bee" }' in path.read_text(encoding="utf-8")
+    assert flow.lint(path) == []
+
+
 def test_rename_does_not_touch_ids_with_the_same_prefix(flow, write_def, tmp_path):
     text = 'schema = 1\nstart = "a"\n[states.a]\nprompt = "A"\ngoto = "a2"\n[states.a2]\nprompt = "B"\nend = true\n'
     path = write_def(tmp_path, text)
