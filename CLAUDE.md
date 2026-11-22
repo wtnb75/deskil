@@ -5,6 +5,11 @@
 - ソースコードのコメント、ログ、エラーメッセージ、`README.md` は英語で書く。
 - 設計書、実装計画、バックログなど、`docs/` 配下のドキュメントは日本語で書く。
 
+## 共有スクリプト
+
+- `plugins/*/scripts/` 配下のスクリプト（`backlog.py`、`flow.py`、`common.sh`）は、`shared/` 配下の実体へのシンボリックリンクである。
+- スクリプトを編集するときは、リンクではなく実体（`shared/backlog/backlog.py`、`shared/flow/flow.py`、`shared/scripts/common.sh`）を編集する。リンクへの書き込みは拒否される。
+
 ## バックログ
 
 - 初版では「やらない」と決めたアイデアや、後で確認する事項は、決めたその場で `docs/BACKLOG.md` に追記する。
