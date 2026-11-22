@@ -52,6 +52,8 @@ uv run flow.py status <run-id>                        # where is this run?
 A state may carry `run = ["cmd", "arg"]`; flow then runs it and shows the exit code and
 output. Commands run only if the definition is identical to its copy at `--ref`
 (default `main`); otherwise they are shown but not executed.
+In a `run` argument, `${DEF_DIR}` is replaced by the directory of the definition file
+(for example `"${DEF_DIR}/../../scripts/x.py"`); no other variable is expanded.
 
 Run state is stored in `.flow/runs/` of the working directory
 (override with `--state-dir` or `FLOW_STATE_DIR`). See
