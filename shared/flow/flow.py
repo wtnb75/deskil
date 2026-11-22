@@ -782,10 +782,12 @@ def _tail(data: bytes, limit: int) -> tuple[str, int]:
     return "".join(lines[cut:]), cut
 
 
-def _ref_mismatch(path: Path, ref: str) -> str | None:
-    """Return why `path` may not run commands, or None if it equals its copy at `ref`.
+def _ref_check(path: Path, ref: str) -> tuple[str | None, dict]:
+    """Check that `path` equals its copy at `ref`; return (reason or None, committed state table).
 
-    The repository is found from the definition's own directory, not the caller's.
+    The repository is found from the definition's own directory, not the caller's. The state
+    table is parsed from the committed bytes, so what runs is what git holds, even if the
+    working file changes between the comparison and the execution.
     """
     try:
         proc = subprocess.run(
@@ -796,15 +798,22 @@ def _ref_mismatch(path: Path, ref: str) -> str | None:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as e:
-        return f"cannot run git: {e}"
+        return f"cannot run git: {e}", {}
     if proc.returncode != 0:
         detail = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        return f"cannot read {path.name} at ref '{ref}': {detail[-1] if detail else 'git failed'}"
+        msg = detail[-1] if detail else "git failed"
+        return f"cannot read {path.name} at ref '{ref}': {msg}", {}
     try:
         same = proc.stdout == path.read_bytes()
     except OSError as e:
-        return f"cannot read {path}: {e.strerror}"
-    return None if same else f"the definition differs from ref '{ref}'"
+        return f"cannot read {path}: {e.strerror}", {}
+    if not same:
+        return f"the definition differs from ref '{ref}'", {}
+    try:
+        states = tomllib.loads(proc.stdout.decode("utf-8"))["states"]
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError) as e:
+        return f"cannot parse {path.name} at ref '{ref}': {e}", {}
+    return None, states
 
 
 def execute_state(
@@ -827,15 +836,19 @@ def execute_state(
         "exit_code": None, "stdout": "", "stderr": "", "stdout_truncated": 0,
         "stderr_truncated": 0, "stdout_file": None, "stderr_file": None,
     }
-    reason = "dry run" if dry else _ref_mismatch(defn.path, run.ref)
+    reason, committed = ("dry run", {}) if dry else _ref_check(defn.path, run.ref)
+    entry = committed.get(st.id)
+    if not reason and not (isinstance(entry, dict) and entry.get("run") == list(st.run)):
+        reason = f"the command differs from ref '{run.ref}'"
     if reason:
         rec["reason"] = reason
         return rec
     rec["executed"] = True
-    cwd = defn.base_dir / st.cwd if st.cwd else Path(run.cwd or Path.cwd())
+    argv = list(entry["run"])  # from the committed copy, not the (mutable) working file
+    cwd = defn.base_dir / entry["cwd"] if entry.get("cwd") else Path(run.cwd or Path.cwd())
     try:
         proc = subprocess.Popen(
-            list(st.run),
+            argv,
             cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -843,7 +856,7 @@ def execute_state(
             start_new_session=True,
         )
     except OSError as e:
-        rec["error"] = f"{e.strerror or e} ({st.run[0]})"
+        rec["error"] = f"{e.strerror or e} ({argv[0]})"
         return rec
     try:
         out, err = proc.communicate(timeout=timeout)
