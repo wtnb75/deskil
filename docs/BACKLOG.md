@@ -186,6 +186,13 @@
 - 背景: `done` / `dropped` の項目が `BACKLOG.md` に積み上がると、ファイルが長くなり、読むトークンが増える。初版は 1 ファイルで始めた（`backlog.py list` が表示を絞るので、当面は困らない）。
 - 概要: `done` / `dropped` の項目を `docs/BACKLOG-DONE.md` のような別ファイルへ移す。`backlog.py` が 2 つのファイルをまたいで ID の採番・依存の確認を行う必要がある。移すタイミング（`archive` の時点か、まとめて）と、`list --all` の扱いは未決。
 
+### B-023 CI の整備
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: 初版は手元での実行（`task` や `pytest`）だけで確認しており、プッシュ・PR 時に自動で検査する仕組みがない。
+- 概要: GitHub Actions などで、PR ごとにテスト（`pytest`）、lint（`ruff`）、flow 定義の lint を自動実行する。対象の OS（Windows は B-004 に依存）、Python のバージョン、CI の基盤（GitHub Actions か他か）、必須チェックにするかは未決。
+
 ## done / dropped
 
 ### B-009 feature 追加: バックログ管理スキル
