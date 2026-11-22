@@ -60,6 +60,13 @@
 - 背景: ローカル追加（`marketplace add ./`）では、キャッシュではなく元のディレクトリが使われた。
 - 概要: リポジトリ作成後に `/plugin marketplace add <user>/<repo>` で入れ直し、次を確認する。(1) skill 内の `${CLAUDE_PLUGIN_ROOT}` がキャッシュのパスに展開される。(2) キャッシュ内の symlink 実体で skill 経由の実行が動く。(3) `allowed-tools` で承認が省略される。
 
+### B-006 最終レビューで見送った軽微な指摘
+- 状態: todo
+- 追加: 2026-11-22
+- 背景: フローエンジンの最終レビューで、影響が小さいとして初版では直さなかった項目。
+- 概要: 次の 7 件。(1) 定義ファイルを読めない（権限など）と `next` が traceback になる（`_file_hash` が `OSError` を包んでいない）。(2) `{ file = "a\0b" }` で `lint_schema` が `ValueError` を出す。(3) 出力する `next` コマンドが、空白を含むスクリプトパスを引用符で囲まない。(4) `on_exceed` だけで循環する定義（b → c → b、どちらも上限超過）が lint を通り、実行時に `on_exceed chain does not terminate` になる。(5) `load_definition` が TOML を 2 回読むので、間に書き換わると `KeyError` になりうる。(6) `rename` が `[states . b]` / `[states."b"]` の見出しを認識せず、拒否はされるがメッセージが `missing-target` だけで原因が分からない。(7) run-id の衝突確認が `exists()` で原子的でなく、一時ファイル名が run ごとに固定。
+- 判断: （対応する項目と順序を決める）
+
 ## done / dropped
 
 （なし）
