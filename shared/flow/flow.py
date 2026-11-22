@@ -215,3 +215,135 @@ def lint_schema(raw: dict, base_dir: Path) -> list[Issue]:
     for sid, st in states.items():
         _check_state(sid, st, state_ids, common, base_dir, issues)
     return issues
+
+
+# ---------------------------------------------------------------------------
+# linter: graph checks
+# ---------------------------------------------------------------------------
+
+
+def _edges(st: dict) -> list[str]:
+    """Targets reachable from one state: goto, every choice, and on_exceed."""
+    out = []
+    if "goto" in st:
+        out.append(st["goto"])
+    out.extend(ch["goto"] for ch in st.get("choices", []))
+    if "on_exceed" in st:
+        out.append(st["on_exceed"])
+    return out
+
+
+def _reachable(graph: dict[str, list[str]], roots: list[str]) -> set[str]:
+    seen = set(roots)
+    stack = list(roots)
+    while stack:
+        for nxt in graph.get(stack.pop(), []):
+            if nxt not in seen:
+                seen.add(nxt)
+                stack.append(nxt)
+    return seen
+
+
+def _sccs(graph: dict[str, list[str]]) -> list[list[str]]:
+    """Strongly connected components (iterative Kosaraju)."""
+    order: list[str] = []
+    seen: set[str] = set()
+    for root in graph:
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(graph[root]))]
+        while stack:
+            node, it = stack[-1]
+            for nxt in it:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append((nxt, iter(graph[nxt])))
+                    break
+            else:
+                stack.pop()
+                order.append(node)
+    reverse: dict[str, list[str]] = {n: [] for n in graph}
+    for n, targets in graph.items():
+        for t in targets:
+            reverse[t].append(n)
+    comps: list[list[str]] = []
+    assigned: set[str] = set()
+    for root in reversed(order):
+        if root in assigned:
+            continue
+        comp = []
+        assigned.add(root)
+        stack2 = [root]
+        while stack2:
+            node = stack2.pop()
+            comp.append(node)
+            for prev in reverse[node]:
+                if prev not in assigned:
+                    assigned.add(prev)
+                    stack2.append(prev)
+        comps.append(comp)
+    return comps
+
+
+def lint_graph(raw: dict) -> list[Issue]:
+    """Check reachability and loops. Expects a definition that passed lint_schema."""
+    issues: list[Issue] = []
+    states: dict[str, dict] = raw["states"]
+    graph = {sid: _edges(st) for sid, st in states.items()}
+
+    reachable = _reachable(graph, [raw["start"]])
+    for sid in states:
+        if sid not in reachable:
+            issues.append(
+                Issue("error", "orphan", f"states.{sid}", "state is not reachable from start")
+            )
+
+    reverse: dict[str, list[str]] = {sid: [] for sid in states}
+    for sid, targets in graph.items():
+        for t in targets:
+            reverse[t].append(sid)
+    ends = [sid for sid, st in states.items() if st.get("end") is True]
+    can_end = _reachable(reverse, ends)
+    for sid in states:
+        if sid in reachable and sid not in can_end:
+            issues.append(
+                Issue("error", "dead-end", f"states.{sid}", "no path from this state reaches an end state")
+            )
+
+    used = {n for st in states.values() for n in st.get("notes", [])}
+    for name in raw.get("notes", {}).get("common", {}):
+        if name not in used:
+            issues.append(
+                Issue("warning", "unused-note", f"notes.common.{name}", "note is not referenced by any state")
+            )
+
+    for sid, st in states.items():
+        if len(st.get("choices", [])) == 1:
+            issues.append(
+                Issue("warning", "single-choice", f"states.{sid}", "only one choice; use goto instead")
+            )
+
+    reach_graph = {sid: graph[sid] for sid in states if sid in reachable}
+    for comp in _sccs(reach_graph):
+        is_cycle = len(comp) > 1 or comp[0] in graph[comp[0]]
+        if is_cycle and not any("max_visits" in states[s] for s in comp):
+            members = ", ".join(sorted(comp))
+            issues.append(
+                Issue(
+                    "warning",
+                    "unbounded-loop",
+                    f"states.{sorted(comp)[0]}",
+                    f"loop without max_visits ({members}); exit depends only on the LLM's choice",
+                )
+            )
+    return issues
+
+
+def lint(path: Path) -> list[Issue]:
+    """Lint a definition file. Graph checks run only if the schema is clean."""
+    raw = read_toml(path)
+    issues = lint_schema(raw, path.resolve().parent)
+    if not any(i.level == "error" for i in issues):
+        issues += lint_graph(raw)
+    return issues
