@@ -7,6 +7,7 @@ tasks:
       - uv run --with pytest pytest tests -q
 
   lint:
-    desc: Lint the Python sources
+    desc: Lint the Python sources and check their formatting
     cmds:
       - uv run --with ruff ruff check .
+      - uv run --with ruff ruff format --check .

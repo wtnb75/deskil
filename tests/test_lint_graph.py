@@ -7,7 +7,7 @@ def defn(states: dict[str, str], extra: str = "", start: str = "a") -> str:
     """Build a definition from {state id: body}."""
     parts = [f'schema = 1\nstart = "{start}"\n{extra}']
     for sid, body in states.items():
-        parts.append(f"[states.{sid}]\nprompt = \"{sid}\"\n{body}")
+        parts.append(f'[states.{sid}]\nprompt = "{sid}"\n{body}')
     return "\n".join(parts)
 
 
@@ -110,7 +110,9 @@ def test_lint_runs_graph_when_schema_ok(flow, write_def, tmp_path):
 
 def test_lint_resolves_files_relative_to_definition(flow, write_def, tmp_path):
     (tmp_path / "p.md").write_text("body", encoding="utf-8")
-    text = defn({"a": 'goto = "b"\n', "b": END}).replace('prompt = "a"', 'prompt = { file = "p.md" }')
+    text = defn({"a": 'goto = "b"\n', "b": END}).replace(
+        'prompt = "a"', 'prompt = { file = "p.md" }'
+    )
     assert flow.lint(write_def(tmp_path, text)) == []
 
 
@@ -138,7 +140,13 @@ def test_on_exceed_only_cycle_is_an_error(flow):
 def test_on_exceed_self_loop_is_an_error(flow):
     issues = graph(
         flow,
-        defn({"a": 'goto = "b"\n', "b": 'goto = "e"\nmax_visits = 1\non_exceed = "b"\n', "e": END}),
+        defn(
+            {
+                "a": 'goto = "b"\n',
+                "b": 'goto = "e"\nmax_visits = 1\non_exceed = "b"\n',
+                "e": END,
+            }
+        ),
     )
     assert "on-exceed-cycle" in codes(issues)
 

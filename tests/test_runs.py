@@ -70,7 +70,15 @@ def test_state_file_is_valid_json_with_schema_1(flow, env):
     rid, _ = start(flow, env)
     data = saved(env, rid)
     assert data["schema"] == 1
-    assert set(data) >= {"run_id", "definition", "definition_hash", "current", "visits", "history", "status"}
+    assert set(data) >= {
+        "run_id",
+        "definition",
+        "definition_hash",
+        "current",
+        "visits",
+        "history",
+        "status",
+    }
     assert re.fullmatch(r"\d{8}-\d{4}-[a-z0-9]{3}", rid)
 
 
@@ -234,4 +242,7 @@ def test_save_run_does_not_depend_on_a_fixed_temp_name(flow, env):
     rid, _ = start(flow, env)
     (env[1] / f"{rid}.json.tmp").mkdir()
     nxt(flow, env, rid, "again")
-    assert sorted(f.name for f in env[1].iterdir()) == [f"{rid}.json", f"{rid}.json.tmp"]
+    assert sorted(f.name for f in env[1].iterdir()) == [
+        f"{rid}.json",
+        f"{rid}.json.tmp",
+    ]

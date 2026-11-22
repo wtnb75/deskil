@@ -77,7 +77,10 @@ def test_render_choices(flow, notes_def):
 
 
 def test_render_delegate(flow, write_def, tmp_path):
-    p = write_def(tmp_path, PLAIN.replace('prompt = "Do A"\n', 'prompt = "Do A"\ndelegate = "reviewer"\n'))
+    p = write_def(
+        tmp_path,
+        PLAIN.replace('prompt = "Do A"\n', 'prompt = "Do A"\ndelegate = "reviewer"\n'),
+    )
     assert render(flow, p, "a") == (
         "[a] (run: R1)\n"
         "Do A\n"

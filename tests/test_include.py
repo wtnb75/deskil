@@ -69,13 +69,19 @@ def codes(flow, path):
 def test_expands_into_one_state_machine(flow, tree):
     d = flow.load_definition(tree)
     assert list(d.states) == ["a", "test__run", "c"]
-    assert d.states["a"].goto == "test__run"  # entry of the include state is the sub's start
+    assert (
+        d.states["a"].goto == "test__run"
+    )  # entry of the include state is the sub's start
 
 
 def test_edges_to_sub_end_states_go_through_exits(flow, tree):
     d = flow.load_definition(tree)
     run = d.states["test__run"]
-    assert {c.label: c.goto for c in run.choices} == {"pass": "c", "retry": "test__run", "red": "a"}
+    assert {c.label: c.goto for c in run.choices} == {
+        "pass": "c",
+        "retry": "test__run",
+        "red": "a",
+    }
     assert run.on_exceed == "a"  # on_exceed to an end state is routed through exits too
     assert run.max_visits == 2
 
@@ -124,11 +130,16 @@ def test_same_part_twice_is_allowed(flow, tmp_path):
     )
     d = flow.load_definition(p)
     assert {"t1__run", "t2__run"} <= set(d.states)
-    assert d.states["t1__run"].choices[0].goto == "t2__run"  # exits to another include state
+    assert (
+        d.states["t1__run"].choices[0].goto == "t2__run"
+    )  # exits to another include state
 
 
 def test_sub_that_starts_at_an_end_state_is_an_error(flow, tmp_path):
-    _write(tmp_path / "parts" / "test.toml", 'schema = 1\nstart = "e"\n[states.e]\nprompt = "e"\nend = true\n')
+    _write(
+        tmp_path / "parts" / "test.toml",
+        'schema = 1\nstart = "e"\n[states.e]\nprompt = "e"\nend = true\n',
+    )
     p = _write(
         tmp_path / "flow.toml",
         'schema = 1\nstart = "t"\n[states.t]\ninclude = "parts/test.toml"\nexits = { e = "f" }\n'
@@ -143,11 +154,15 @@ def test_sub_that_starts_at_an_end_state_is_an_error(flow, tmp_path):
 def test_always_notes_stay_with_their_own_definition(flow, tmp_path):
     _write(
         tmp_path / "parts" / "test.toml",
-        PART.replace('start = "run"', 'start = "run"\n[notes]\nalways = ["sub rule"]', 1),
+        PART.replace(
+            'start = "run"', 'start = "run"\n[notes]\nalways = ["sub rule"]', 1
+        ),
     )
     p = _write(
         tmp_path / "flow.toml",
-        PARENT.replace('start = "a"\n', 'start = "a"\n[notes]\nalways = ["parent rule"]\n', 1),
+        PARENT.replace(
+            'start = "a"\n', 'start = "a"\n[notes]\nalways = ["parent rule"]\n', 1
+        ),
     )
     d = flow.load_definition(p)
     assert d.states["a"].always == ("parent rule",)
@@ -173,7 +188,9 @@ def test_sub_common_notes_are_namespaced(flow, tmp_path):
 
 
 def test_exits_must_cover_every_end_state(flow, tree):
-    _write(tree, PARENT.replace('exits = { ok = "c", fail = "a" }', 'exits = { ok = "c" }'))
+    _write(
+        tree, PARENT.replace('exits = { ok = "c", fail = "a" }', 'exits = { ok = "c" }')
+    )
     assert "exits-missing" in codes(flow, tree)
 
 
@@ -188,7 +205,12 @@ def test_exits_target_must_exist(flow, tree):
 
 
 def test_include_state_takes_no_other_keys(flow, tree):
-    _write(tree, PARENT.replace('include = "parts/test.toml"', 'include = "parts/test.toml"\nprompt = "x"'))
+    _write(
+        tree,
+        PARENT.replace(
+            'include = "parts/test.toml"', 'include = "parts/test.toml"\nprompt = "x"'
+        ),
+    )
     assert "include-with-other-keys" in codes(flow, tree)
 
 
@@ -242,7 +264,10 @@ def test_self_include_is_a_cycle(flow, tmp_path):
 
 
 def test_sub_schema_errors_are_reported_with_the_sub_path(flow, tree, tmp_path):
-    _write(tmp_path / "parts" / "test.toml", PART.replace('[states.ok]', '[states.ok]\nbogus = 1'))
+    _write(
+        tmp_path / "parts" / "test.toml",
+        PART.replace("[states.ok]", "[states.ok]\nbogus = 1"),
+    )
     issues = [i for i in flow.lint(tree) if i.code == "unknown-key"]
     assert issues and "parts/test.toml" in issues[0].where
 
@@ -284,7 +309,9 @@ def test_file_cwd_and_def_dir_are_relative_to_the_part(flow, tmp_path):
     )
     root = tmp_path / "proj"
     root.mkdir()
-    (root / "parts").symlink_to(shared)  # a symlinked directory outside the definition dir
+    (root / "parts").symlink_to(
+        shared
+    )  # a symlinked directory outside the definition dir
     p = _write(
         root / "flow.toml",
         'schema = 1\nstart = "t"\n[states.t]\ninclude = "parts/test.toml"\nexits = { ok = "e" }\n'
@@ -325,7 +352,9 @@ def test_sub_file_reference_outside_is_an_error(flow, tmp_path):
 def test_hash_is_the_file_hash_without_includes(flow, write_def, tmp_path):
     import hashlib
 
-    p = write_def(tmp_path, 'schema = 1\nstart = "a"\n[states.a]\nprompt = "x"\nend = true\n')
+    p = write_def(
+        tmp_path, 'schema = 1\nstart = "a"\n[states.a]\nprompt = "x"\nend = true\n'
+    )
     assert flow.load_definition(p).hash == hashlib.sha256(p.read_bytes()).hexdigest()
 
 
@@ -333,7 +362,9 @@ def test_editing_a_part_changes_the_run_hash(flow, tree, tmp_path):
     state_dir = tmp_path / "runs"
     out = flow.start_run(tree, state_dir)
     run_id = out.split("run: ")[1].split(")")[0]
-    (tmp_path / "parts" / "test.toml").write_text(PART + "\n# edited\n", encoding="utf-8")
+    (tmp_path / "parts" / "test.toml").write_text(
+        PART + "\n# edited\n", encoding="utf-8"
+    )
     with pytest.raises(flow.FlowError, match="changed since"):
         flow.next_step(run_id, None, state_dir)
     flow.next_step(run_id, None, state_dir, force=True)
@@ -385,7 +416,9 @@ def test_part_command_runs_when_all_files_match_ref(flow, repo, tmp_path):
 
 def test_edited_part_command_is_display_only(flow, repo, tmp_path):
     part = repo / "parts" / "test.toml"
-    part.write_text(part.read_text(encoding="utf-8").replace("from-part", "evil"), encoding="utf-8")
+    part.write_text(
+        part.read_text(encoding="utf-8").replace("from-part", "evil"), encoding="utf-8"
+    )
     run_id, state_dir = _first_two_steps(flow, repo, tmp_path)
     out = flow.next_step(run_id, None, state_dir)
     assert "Command not executed" in out and "evil" in out
@@ -394,7 +427,9 @@ def test_edited_part_command_is_display_only(flow, repo, tmp_path):
 def test_force_after_part_edit_does_not_execute(flow, repo, tmp_path):
     run_id, state_dir = _first_two_steps(flow, repo, tmp_path)
     part = repo / "parts" / "test.toml"
-    part.write_text(part.read_text(encoding="utf-8").replace("from-part", "evil"), encoding="utf-8")
+    part.write_text(
+        part.read_text(encoding="utf-8").replace("from-part", "evil"), encoding="utf-8"
+    )
     out = flow.next_step(run_id, None, state_dir, force=True)
     assert "Command not executed" in out and "Exit code" not in out
 
@@ -422,7 +457,9 @@ def test_symlinked_part_is_checked_at_its_real_path(flow, tmp_path):
     out = flow.start_run(root / "flow.toml", tmp_path / "runs")
     assert "Exit code: 0" in out
     shared = root / "shared" / "test.toml"
-    shared.write_text(shared.read_text(encoding="utf-8").replace("linked", "evil"), encoding="utf-8")
+    shared.write_text(
+        shared.read_text(encoding="utf-8").replace("linked", "evil"), encoding="utf-8"
+    )
     out = flow.start_run(root / "flow.toml", tmp_path / "runs")
     assert "Command not executed" in out
 
@@ -451,6 +488,8 @@ def test_repointed_symlink_is_display_only(flow, tmp_path):
     _git(root, "commit", "-m", "def")
     link = root / "parts" / "test.toml"
     link.unlink()
-    link.symlink_to(root / "shared" / "two.toml")  # committed content, but not the committed link
+    link.symlink_to(
+        root / "shared" / "two.toml"
+    )  # committed content, but not the committed link
     out = flow.start_run(root / "flow.toml", tmp_path / "runs")
     assert "Command not executed" in out and "Exit code" not in out

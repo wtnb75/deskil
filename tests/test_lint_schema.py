@@ -28,9 +28,7 @@ def test_valid_definition_with_choices_notes_and_files(flow, tmp_path):
     (tmp_path / "a.md").write_text("A body\n", encoding="utf-8")
     text = make(
         top='schema = 1\nstart = "a"\n[notes]\nalways = ["be careful"]\n',
-        a='prompt = { file = "a.md" }\nnotes = ["n1"]\n'
-        + choice("x")
-        + choice("y"),
+        a='prompt = { file = "a.md" }\nnotes = ["n1"]\n' + choice("x") + choice("y"),
         extra='[notes.common]\nn1 = "note one"\n',
     )
     assert run(flow, text, tmp_path) == []
@@ -43,7 +41,11 @@ CASES = [
     ("start-not-a-state", make(top='schema = 1\nstart = "zzz"\n'), "start"),
     ("unknown-top-key", make(top=TOP + "foo = 1\n"), "unknown-key"),
     ("unknown-state-key", make(a=A + "bogus = 1\n"), "unknown-key"),
-    ("unknown-choice-key", make(a=A.replace('goto = "b"\n', "") + choice() + "z = 1\n"), "unknown-key"),
+    (
+        "unknown-choice-key",
+        make(a=A.replace('goto = "b"\n', "") + choice() + "z = 1\n"),
+        "unknown-key",
+    ),
     ("delegate-not-a-string", make(a=A + "delegate = 1\n"), "type"),
     ("delegate-bad-name", make(a=A + 'delegate = "my agent"\n'), "type"),
     ("delegate-on-end", make(b=B + 'delegate = "x"\n'), "end-with-transition"),
@@ -62,7 +64,11 @@ CASES = [
         make(a=A + 'max_visits = 2\non_exceed = "zzz"\n'),
         "missing-target",
     ),
-    ("missing-target-choice", make(a='prompt = "A"\n' + choice(goto="zzz")), "missing-target"),
+    (
+        "missing-target-choice",
+        make(a='prompt = "A"\n' + choice(goto="zzz")),
+        "missing-target",
+    ),
     ("transition-none", make(a='prompt = "A"\n'), "transition-count"),
     ("transition-both", make(a=A + choice()), "transition-count"),
     ("end-with-goto", make(b=B + 'goto = "a"\n'), "end-with-transition"),
@@ -87,7 +93,9 @@ CASES = [
     ),
     (
         "choice-goto-not-a-string",
-        make(a='prompt = "A"\n[[states.a.choices]]\nlabel = "x"\nwhen = "w"\ngoto = ["b"]\n'),
+        make(
+            a='prompt = "A"\n[[states.a.choices]]\nlabel = "x"\nwhen = "w"\ngoto = ["b"]\n'
+        ),
         "type",
     ),
     ("prompt-missing", make(a='goto = "b"\n'), "prompt-missing"),
@@ -100,7 +108,9 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("text,code", [(t, c) for _, t, c in CASES], ids=[n for n, _, _ in CASES])
+@pytest.mark.parametrize(
+    "text,code", [(t, c) for _, t, c in CASES], ids=[n for n, _, _ in CASES]
+)
 def test_schema_errors(flow, tmp_path, text, code):
     issues = run(flow, text, tmp_path)
     assert code in {i.code for i in issues}

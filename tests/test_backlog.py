@@ -120,7 +120,11 @@ def test_list_all_includes_archived_items_last(backlog):
 def test_list_orders_priority_then_id_within_a_state(backlog):
     text = SAMPLE.replace("- 状態: ready", "- 状態: todo")
     out = backlog.render_list(backlog.parse(text), None)
-    assert [line.split("  ")[0] for line in out.splitlines()] == ["B-002", "B-001", "B-003"]
+    assert [line.split("  ")[0] for line in out.splitlines()] == [
+        "B-002",
+        "B-001",
+        "B-003",
+    ]
 
 
 def test_list_marks_blocked_items(backlog):
@@ -130,7 +134,9 @@ def test_list_marks_blocked_items(backlog):
     dropped_dep = SAMPLE.replace("- 状態: ready", "- 状態: dropped")
     assert "[blocked by B-001]" in backlog.render_list(backlog.parse(dropped_dep), None)
     unknown = SAMPLE.replace("- 依存: B-001", "- 依存: B-001, B-099")
-    assert "[blocked by B-001, B-099]" in backlog.render_list(backlog.parse(unknown), None)
+    assert "[blocked by B-001, B-099]" in backlog.render_list(
+        backlog.parse(unknown), None
+    )
 
 
 def test_list_shows_dash_for_missing_priority(backlog):
@@ -143,7 +149,11 @@ def test_list_priority_keeps_that_priority_or_higher(backlog):
     ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
     assert ids(backlog.render_list(bl, None, priority="P1")) == ["B-002"]
     assert ids(backlog.render_list(bl, None, priority="P2")) == ["B-001", "B-002"]
-    assert ids(backlog.render_list(bl, None, priority="P3")) == ["B-001", "B-002", "B-003"]
+    assert ids(backlog.render_list(bl, None, priority="P3")) == [
+        "B-001",
+        "B-002",
+        "B-003",
+    ]
 
 
 def test_list_priority_excludes_items_without_priority(backlog):
@@ -154,7 +164,9 @@ def test_list_priority_excludes_items_without_priority(backlog):
 
 def test_list_limit_applies_after_sorting_and_priority_filter(backlog):
     bl = backlog.parse(SAMPLE)
-    assert backlog.render_list(bl, None, limit=1).splitlines() == ["B-001  ready  P2  First"]
+    assert backlog.render_list(bl, None, limit=1).splitlines() == [
+        "B-001  ready  P2  First"
+    ]
     out = backlog.render_list(bl, None, priority="P2", limit=2)
     assert [line.split("  ")[0] for line in out.splitlines()] == ["B-001", "B-002"]
     assert backlog.render_list(bl, None, limit=10).count("\n") == 2
@@ -165,7 +177,11 @@ def test_list_exclude_drops_items_before_limit(backlog):
     ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
     assert ids(backlog.render_list(bl, None, exclude={"B-001"})) == ["B-002", "B-003"]
     assert ids(backlog.render_list(bl, None, exclude={"B-001"}, limit=1)) == ["B-002"]
-    assert ids(backlog.render_list(bl, None, exclude=set())) == ["B-001", "B-002", "B-003"]
+    assert ids(backlog.render_list(bl, None, exclude=set())) == [
+        "B-001",
+        "B-002",
+        "B-003",
+    ]
 
 
 def test_started_ids_reads_only_remote_backlog_branches(backlog, tmp_path, monkeypatch):
@@ -178,12 +194,27 @@ def test_started_ids_reads_only_remote_backlog_branches(backlog, tmp_path, monke
     work = tmp_path / "work"
     remote.mkdir()
     git("init", "-q", "-b", "main", cwd=remote)
-    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x", cwd=remote)
+    git(
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "x",
+        cwd=remote,
+    )
     git("branch", "backlog/B-031-some-slug", cwd=remote)
     git("branch", "feature/other", cwd=remote)
-    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True
+    )
     git("fetch", "-q", "origin", cwd=work)
-    git("branch", "backlog/B-099-local-only", cwd=work)  # local-only branches are ignored
+    git(
+        "branch", "backlog/B-099-local-only", cwd=work
+    )  # local-only branches are ignored
     monkeypatch.chdir(work)
     assert backlog.started_ids() == {"B-031"}
 
@@ -203,19 +234,38 @@ def test_list_not_started_cli(backlog, tmp_path, monkeypatch, capsys):
     assert [line.split("  ")[0] for line in out.splitlines()] == ["B-002", "B-003"]
 
 
-def _repo_with_backlog(tmp_path: Path, committed: str, relpath: str = "docs/BACKLOG.md") -> Path:
+def _repo_with_backlog(
+    tmp_path: Path, committed: str, relpath: str = "docs/BACKLOG.md"
+) -> Path:
     import subprocess
 
     repo = tmp_path / "repo"
     (repo / relpath).parent.mkdir(parents=True)
     (repo / relpath).write_text(committed, encoding="utf-8")
-    for args in (["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x"]):
+    for args in (
+        ["init", "-q", "-b", "main"],
+        ["add", "."],
+        [
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "x",
+        ],
+    ):
         subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
     return repo
 
 
-def test_ref_reads_committed_backlog_not_working_tree(backlog, tmp_path, monkeypatch, capsys):
-    stale = SAMPLE.replace("- 状態: ready", "- 状態: todo", 1)  # the working tree is behind the ref
+def test_ref_reads_committed_backlog_not_working_tree(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    stale = SAMPLE.replace(
+        "- 状態: ready", "- 状態: todo", 1
+    )  # the working tree is behind the ref
     repo = _repo_with_backlog(tmp_path, SAMPLE)
     (repo / "docs/BACKLOG.md").write_text(stale, encoding="utf-8")
     monkeypatch.chdir(repo)
@@ -280,18 +330,84 @@ def test_lint_clean_sample(backlog):
 
 # (id, old, new, message substring, marker of the line the problem points at)
 LINT_CASES = [
-    ("malformed-heading", "### B-003 Third", "### B-3 Third", "malformed", "### B-3 Third"),
-    ("duplicate-id", "### B-003 Third", "### B-002 Third", "duplicate item id B-002", "### B-002 Third"),
-    ("duplicate-field", "- 優先度: P3\n", "- 優先度: P3\n- 優先度: P2\n", "duplicate field 優先度", "- 優先度: P2"),
-    ("missing-added", "- 追加: 2026-11-03\n", "", "B-003: missing 追加", "### B-003 Third"),
-    ("missing-priority", "- 優先度: P3\n", "", "B-003: missing 優先度", "### B-003 Third"),
-    ("invalid-state", "- 状態: todo\n- 優先度: P3", "- 状態: wip\n- 優先度: P3", "invalid 状態", "- 状態: wip"),
-    ("invalid-priority", "- 優先度: P3", "- 優先度: P9", "invalid 優先度", "- 優先度: P9"),
-    ("invalid-date", "- 追加: 2026-11-03", "- 追加: 11/03", "invalid 追加", "- 追加: 11/03"),
-    ("invalid-dependency", "- 依存: B-001", "- 依存: B-1", "invalid 依存", "- 依存: B-1"),
+    (
+        "malformed-heading",
+        "### B-003 Third",
+        "### B-3 Third",
+        "malformed",
+        "### B-3 Third",
+    ),
+    (
+        "duplicate-id",
+        "### B-003 Third",
+        "### B-002 Third",
+        "duplicate item id B-002",
+        "### B-002 Third",
+    ),
+    (
+        "duplicate-field",
+        "- 優先度: P3\n",
+        "- 優先度: P3\n- 優先度: P2\n",
+        "duplicate field 優先度",
+        "- 優先度: P2",
+    ),
+    (
+        "missing-added",
+        "- 追加: 2026-11-03\n",
+        "",
+        "B-003: missing 追加",
+        "### B-003 Third",
+    ),
+    (
+        "missing-priority",
+        "- 優先度: P3\n",
+        "",
+        "B-003: missing 優先度",
+        "### B-003 Third",
+    ),
+    (
+        "invalid-state",
+        "- 状態: todo\n- 優先度: P3",
+        "- 状態: wip\n- 優先度: P3",
+        "invalid 状態",
+        "- 状態: wip",
+    ),
+    (
+        "invalid-priority",
+        "- 優先度: P3",
+        "- 優先度: P9",
+        "invalid 優先度",
+        "- 優先度: P9",
+    ),
+    (
+        "invalid-date",
+        "- 追加: 2026-11-03",
+        "- 追加: 11/03",
+        "invalid 追加",
+        "- 追加: 11/03",
+    ),
+    (
+        "invalid-dependency",
+        "- 依存: B-001",
+        "- 依存: B-1",
+        "invalid 依存",
+        "- 依存: B-1",
+    ),
     ("invalid-pr", "- PR: #1", "- PR: 1", "invalid PR", "- PR: 1"),
-    ("ready-without-judgement", "- 判断: decided\n", "", "B-001: missing 判断", "### B-001 First"),
-    ("done-without-completion", "- 完了: 2026-10-02\n", "", "B-004: missing 完了", "### B-004 Finished"),
+    (
+        "ready-without-judgement",
+        "- 判断: decided\n",
+        "",
+        "B-001: missing 判断",
+        "### B-001 First",
+    ),
+    (
+        "done-without-completion",
+        "- 完了: 2026-10-02\n",
+        "",
+        "B-004: missing 完了",
+        "### B-004 Finished",
+    ),
     ("done-without-pr", "- PR: #1\n", "", "B-004: missing PR", "### B-004 Finished"),
     (
         "dropped-with-pr",
@@ -300,8 +416,20 @@ LINT_CASES = [
         "PR must not be set on a dropped item",
         "- PR: #1",
     ),
-    ("archived-item-in-todo-state", "- 状態: done", "- 状態: todo", "belongs in the 'todo / ready' section", "- 状態: todo"),
-    ("unknown-dependency", "- 依存: B-001", "- 依存: B-099", "unknown dependency B-099", "- 依存: B-099"),
+    (
+        "archived-item-in-todo-state",
+        "- 状態: done",
+        "- 状態: todo",
+        "belongs in the 'todo / ready' section",
+        "- 状態: todo",
+    ),
+    (
+        "unknown-dependency",
+        "- 依存: B-001",
+        "- 依存: B-099",
+        "unknown dependency B-099",
+        "- 依存: B-099",
+    ),
     (
         "dependency-cycle",
         "- 状態: ready\n- 優先度: P2\n",
@@ -312,7 +440,9 @@ LINT_CASES = [
 ]
 
 
-@pytest.mark.parametrize("name,old,new,message,marker", LINT_CASES, ids=[c[0] for c in LINT_CASES])
+@pytest.mark.parametrize(
+    "name,old,new,message,marker", LINT_CASES, ids=[c[0] for c in LINT_CASES]
+)
 def test_lint_detects(backlog, name, old, new, message, marker):
     text = SAMPLE.replace(old, new, 1)
     assert text != SAMPLE
@@ -326,13 +456,23 @@ def test_lint_detects(backlog, name, old, new, message, marker):
 def test_lint_unknown_dependency_is_reported_not_just_blocked(backlog):
     # Review focus: a dependency that does not exist is an error, not only a "blocked" mark.
     text = SAMPLE.replace("- 依存: B-001", "- 依存: B-099")
-    assert any("unknown dependency B-099" in p.message for p in lint_text(backlog, text))
+    assert any(
+        "unknown dependency B-099" in p.message for p in lint_text(backlog, text)
+    )
 
 
 def test_lint_dependency_cycle_is_reported_once(backlog):
-    text = SAMPLE.replace("- 状態: ready\n- 優先度: P2\n", "- 状態: ready\n- 優先度: P2\n- 依存: B-002\n", 1)
+    text = SAMPLE.replace(
+        "- 状態: ready\n- 優先度: P2\n",
+        "- 状態: ready\n- 優先度: P2\n- 依存: B-002\n",
+        1,
+    )
     cycles = [p for p in lint_text(backlog, text) if "cycle" in p.message]
-    assert len(cycles) == 1 and "B-001" in cycles[0].message and "B-002" in cycles[0].message
+    assert (
+        len(cycles) == 1
+        and "B-001" in cycles[0].message
+        and "B-002" in cycles[0].message
+    )
 
 
 def test_cli_lint_exit_codes_and_format(backlog, tmp_path, capsys):
@@ -377,7 +517,12 @@ def test_set_inserts_missing_field_in_order(backlog):
 @pytest.mark.parametrize(
     "item,key,value,message",
     [
-        ("B-002", "優先度", "P1\n- 状態: done", "newline"),  # Review focus: a value must stay on one line
+        (
+            "B-002",
+            "優先度",
+            "P1\n- 状態: done",
+            "newline",
+        ),  # Review focus: a value must stay on one line
         ("B-099", "優先度", "P1", "B-099"),
         ("B-002", "背景", "x", "cannot set"),
         ("B-002", "優先度", "P9", "P1, P2, P3"),
@@ -403,7 +548,11 @@ def test_archive_done_moves_block_and_adds_completion_fields(backlog):
     moved = next(i for i in bl.items if i.id == "B-001")
     assert moved.section == backlog.SECTION_ARCHIVE
     assert [i.id for i in bl.items] == ["B-002", "B-003", "B-004", "B-001"]
-    assert (moved.get("状態"), moved.get("完了"), moved.get("PR")) == ("done", "2026-11-22", "#7")
+    assert (moved.get("状態"), moved.get("完了"), moved.get("PR")) == (
+        "done",
+        "2026-11-22",
+        "#7",
+    )
     assert moved.get("判断") == "decided"
     assert backlog.lint(bl) == []
 
@@ -463,10 +612,14 @@ def test_archive_rejects(backlog, item, outcome, pr, message):
 def test_cli_set_writes_file(backlog, tmp_path):
     path = write(tmp_path, SAMPLE)
     assert backlog.main(["--file", str(path), "set", "B-003", "優先度", "P1"]) == 0
-    assert path.read_text(encoding="utf-8") == backlog.set_field(SAMPLE, "B-003", "優先度", "P1")
+    assert path.read_text(encoding="utf-8") == backlog.set_field(
+        SAMPLE, "B-003", "優先度", "P1"
+    )
 
 
-def test_cli_set_does_not_write_when_it_would_introduce_a_lint_problem(backlog, tmp_path, capsys):
+def test_cli_set_does_not_write_when_it_would_introduce_a_lint_problem(
+    backlog, tmp_path, capsys
+):
     path = write(tmp_path, SAMPLE)
     assert backlog.main(["--file", str(path), "set", "B-003", "依存", "B-099"]) == 2
     assert "unknown dependency B-099" in capsys.readouterr().err
@@ -489,11 +642,16 @@ def test_cli_set_error_leaves_file_untouched(backlog, tmp_path, capsys):
 
 def test_cli_archive(backlog, tmp_path):
     path = write(tmp_path, SAMPLE)
-    assert backlog.main(["--file", str(path), "archive", "B-001", "--done", "--pr", "7"]) == 0
+    assert (
+        backlog.main(["--file", str(path), "archive", "B-001", "--done", "--pr", "7"])
+        == 0
+    )
     text = path.read_text(encoding="utf-8")
     assert f"- 完了: {date.today().isoformat()}" in text and "- PR: #7" in text
     assert backlog.lint(backlog.parse(text)) == []
-    assert backlog.main(["--file", str(path), "archive", "B-002", "--dropped"]) == 2  # no 判断 yet
+    assert (
+        backlog.main(["--file", str(path), "archive", "B-002", "--dropped"]) == 2
+    )  # no 判断 yet
 
 
 # --- the real backlog ------------------------------------------------------
@@ -535,7 +693,10 @@ def test_cli_list_and_next_id(backlog, tmp_path, capsys):
 
 def test_cli_list_priority_and_limit(backlog, tmp_path, capsys):
     path = write(tmp_path, SAMPLE)
-    assert backlog.main(["--file", str(path), "list", "--priority", "P2", "--limit", "1"]) == 0
+    assert (
+        backlog.main(["--file", str(path), "list", "--priority", "P2", "--limit", "1"])
+        == 0
+    )
     assert capsys.readouterr().out == "B-001  ready  P2  First\n"
     assert backlog.main(["--file", str(path), "list", "--priority", "P9"]) == 2
     assert "P9" in capsys.readouterr().err

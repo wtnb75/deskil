@@ -86,8 +86,20 @@ LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
 TOP_KEYS = {"schema", "start", "notes", "states"}
 NOTES_KEYS = {"always", "common"}
 STATE_KEYS = {
-    "prompt", "notes", "goto", "choices", "end", "max_visits", "on_exceed", "delegate",
-    "run", "timeout", "cwd", "output_lines", "include", "exits",
+    "prompt",
+    "notes",
+    "goto",
+    "choices",
+    "end",
+    "max_visits",
+    "on_exceed",
+    "delegate",
+    "run",
+    "timeout",
+    "cwd",
+    "output_lines",
+    "include",
+    "exits",
 }
 # An include state is replaced by the states of another definition; it takes only these keys.
 INCLUDE_KEYS = ("include", "exits")
@@ -125,7 +137,11 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
     """A text value is a string or a table of the form { file = "relative/path" }."""
     if isinstance(value, str):
         return
-    if not (isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str)):
+    if not (
+        isinstance(value, dict)
+        and set(value) == {"file"}
+        and isinstance(value["file"], str)
+    ):
         _err(issues, "type", where, 'expected a string or { file = "path" }')
         return
     rel = Path(value["file"])
@@ -138,12 +154,19 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
         _err(issues, "file-missing", where, f"invalid file path: {value['file']!r}")
         return
     if outside:
-        _err(issues, "file-outside", where, f"'{value['file']}' is outside the definition directory")
+        _err(
+            issues,
+            "file-outside",
+            where,
+            f"'{value['file']}' is outside the definition directory",
+        )
     elif not is_file:
         _err(issues, "file-missing", where, f"file not found: {value['file']}")
 
 
-def _check_target(value: object, where: str, state_ids: set[str], issues: list[Issue]) -> None:
+def _check_target(
+    value: object, where: str, state_ids: set[str], issues: list[Issue]
+) -> None:
     """A transition target must be the id of an existing state."""
     if isinstance(value, str):
         if value not in state_ids:
@@ -178,7 +201,11 @@ def _check_notes(notes: object, base_dir: Path, issues: list[Issue]) -> set[str]
 
 
 def _check_choices(
-    choices: object, where: str, state_ids: set[str], base_dir: Path, issues: list[Issue]
+    choices: object,
+    where: str,
+    state_ids: set[str],
+    base_dir: Path,
+    issues: list[Issue],
 ) -> None:
     if not isinstance(choices, list) or not choices:
         _err(issues, "type", where, "choices must be a non-empty list of tables")
@@ -192,7 +219,12 @@ def _check_choices(
         _check_keys(ch, CHOICE_KEYS, cw, issues)
         label = ch.get("label")
         if not isinstance(label, str) or not LABEL_RE.match(label):
-            _err(issues, "label-format", cw, f"label must match {LABEL_RE.pattern}: {label!r}")
+            _err(
+                issues,
+                "label-format",
+                cw,
+                f"label must match {LABEL_RE.pattern}: {label!r}",
+            )
         elif label in seen:
             _err(issues, "label-duplicate", cw, f"duplicate label '{label}'")
         else:
@@ -209,49 +241,88 @@ def _check_run(st: dict, where: str, issues: list[Issue]) -> None:
     if "run" in st:
         argv = st["run"]
         if not (
-            isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)
+            isinstance(argv, list)
+            and argv
+            and all(isinstance(a, str) and a for a in argv)
         ):
-            _err(issues, "type", f"{where}.run", "run must be a non-empty list of non-empty strings")
+            _err(
+                issues,
+                "type",
+                f"{where}.run",
+                "run must be a non-empty list of non-empty strings",
+            )
         else:
             for a in argv:
                 for var in VARIABLE_RE.findall(a):
                     if var != DEF_DIR_VAR:
-                        issues.append(Issue(
-                            "warning", "unknown-variable", f"{where}.run",
-                            f"'{var}' is not expanded (only {DEF_DIR_VAR} is) and is passed as is",
-                        ))
+                        issues.append(
+                            Issue(
+                                "warning",
+                                "unknown-variable",
+                                f"{where}.run",
+                                f"'{var}' is not expanded (only {DEF_DIR_VAR} is) and is passed as is",
+                            )
+                        )
     else:
         for key in RUN_OPTION_KEYS:
             if key in st:
-                _err(issues, "option-without-run", f"{where}.{key}", f"{key} has no effect without run")
+                _err(
+                    issues,
+                    "option-without-run",
+                    f"{where}.{key}",
+                    f"{key} has no effect without run",
+                )
     for key in ("timeout", "output_lines"):
         if key in st and (type(st[key]) is not int or st[key] < 1):
             _err(issues, "type", f"{where}.{key}", f"{key} must be an integer >= 1")
     if "cwd" in st:
         cwd = st["cwd"]
         if not isinstance(cwd, str) or not cwd:
-            _err(issues, "type", f"{where}.cwd", "cwd must be a relative path (a string)")
+            _err(
+                issues, "type", f"{where}.cwd", "cwd must be a relative path (a string)"
+            )
         elif Path(cwd).is_absolute() or ".." in Path(cwd).parts:
-            _err(issues, "cwd-outside", f"{where}.cwd", f"'{cwd}' must stay inside the definition directory")
+            _err(
+                issues,
+                "cwd-outside",
+                f"{where}.cwd",
+                f"'{cwd}' must stay inside the definition directory",
+            )
 
 
-def _check_include(st: dict, where: str, state_ids: set[str], issues: list[Issue]) -> None:
+def _check_include(
+    st: dict, where: str, state_ids: set[str], issues: list[Issue]
+) -> None:
     """Check an include state: only `include` (a path) and `exits` (end state id -> state id)."""
     for key in st:
         if key in STATE_KEYS and key not in INCLUDE_KEYS:
-            _err(issues, "include-with-other-keys", f"{where}.{key}", f"'{key}' cannot be used with include")
+            _err(
+                issues,
+                "include-with-other-keys",
+                f"{where}.{key}",
+                f"'{key}' cannot be used with include",
+            )
     if not isinstance(st["include"], str) or not st["include"]:
         _err(issues, "type", f"{where}.include", "include must be a path (a string)")
     exits = st.get("exits", {})
     if not isinstance(exits, dict):
-        _err(issues, "type", f"{where}.exits", "exits must be a table of end state id = state id")
+        _err(
+            issues,
+            "type",
+            f"{where}.exits",
+            "exits must be a table of end state id = state id",
+        )
         return
     for end_id, target in exits.items():
         _check_target(target, f"{where}.exits.{end_id}", state_ids, issues)
 
 
 def _check_state(
-    sid: str, st: object, state_ids: set[str], common: set[str], base_dir: Path,
+    sid: str,
+    st: object,
+    state_ids: set[str],
+    common: set[str],
+    base_dir: Path,
     issues: list[Issue],
 ) -> None:
     where = f"states.{sid}"
@@ -265,7 +336,12 @@ def _check_state(
         _check_include(st, where, state_ids, issues)
         return
     if "exits" in st:
-        _err(issues, "exits-without-include", f"{where}.exits", "exits has no effect without include")
+        _err(
+            issues,
+            "exits-without-include",
+            f"{where}.exits",
+            "exits has no effect without include",
+        )
 
     if "prompt" not in st:
         _err(issues, "prompt-missing", where, "a state needs 'prompt'")
@@ -279,13 +355,19 @@ def _check_state(
         else:
             for n in names:
                 if n not in common:
-                    _err(issues, "note-undefined", f"{where}.notes", f"'{n}' is not in notes.common")
+                    _err(
+                        issues,
+                        "note-undefined",
+                        f"{where}.notes",
+                        f"'{n}' is not in notes.common",
+                    )
 
     is_end = st.get("end") is True
     if "end" in st and not isinstance(st["end"], bool):
         _err(issues, "type", f"{where}.end", "end must be true or false")
     if is_end and any(
-        k in st for k in ("goto", "choices", "max_visits", "on_exceed", "delegate", "run")
+        k in st
+        for k in ("goto", "choices", "max_visits", "on_exceed", "delegate", "run")
     ):
         _err(
             issues,
@@ -296,7 +378,12 @@ def _check_state(
     else:
         count = sum(1 for k in ("goto", "choices") if k in st) + (1 if is_end else 0)
         if count != 1:
-            _err(issues, "transition-count", where, "exactly one of goto / choices / end is required")
+            _err(
+                issues,
+                "transition-count",
+                where,
+                "exactly one of goto / choices / end is required",
+            )
 
     if "delegate" in st:
         agent = st["delegate"]
@@ -317,13 +404,20 @@ def _check_state(
 
     mv = st.get("max_visits")
     if "max_visits" in st and (type(mv) is not int or mv < 1):
-        _err(issues, "type", f"{where}.max_visits", "max_visits must be an integer >= 1")
+        _err(
+            issues, "type", f"{where}.max_visits", "max_visits must be an integer >= 1"
+        )
     if "max_visits" in st and "on_exceed" not in st and not is_end:
         _err(issues, "on-exceed-missing", where, "max_visits requires on_exceed")
     if "on_exceed" in st:
         _check_target(st["on_exceed"], f"{where}.on_exceed", state_ids, issues)
         if "max_visits" not in st and not is_end:
-            _err(issues, "on-exceed-without-max-visits", where, "on_exceed has no effect without max_visits")
+            _err(
+                issues,
+                "on-exceed-without-max-visits",
+                where,
+                "on_exceed has no effect without max_visits",
+            )
 
 
 def lint_schema(raw: dict, base_dir: Path) -> list[Issue]:
@@ -432,7 +526,12 @@ def lint_graph(raw: dict) -> list[Issue]:
     for sid in states:
         if sid not in reachable:
             issues.append(
-                Issue("error", "orphan", f"states.{sid}", "state is not reachable from start")
+                Issue(
+                    "error",
+                    "orphan",
+                    f"states.{sid}",
+                    "state is not reachable from start",
+                )
             )
 
     reverse: dict[str, list[str]] = {sid: [] for sid in states}
@@ -444,25 +543,42 @@ def lint_graph(raw: dict) -> list[Issue]:
     for sid in states:
         if sid in reachable and sid not in can_end:
             issues.append(
-                Issue("error", "dead-end", f"states.{sid}", "no path from this state reaches an end state")
+                Issue(
+                    "error",
+                    "dead-end",
+                    f"states.{sid}",
+                    "no path from this state reaches an end state",
+                )
             )
 
     used = {n for st in states.values() for n in st.get("notes", [])}
     for name in raw.get("notes", {}).get("common", {}):
         if name not in used:
             issues.append(
-                Issue("warning", "unused-note", f"notes.common.{name}", "note is not referenced by any state")
+                Issue(
+                    "warning",
+                    "unused-note",
+                    f"notes.common.{name}",
+                    "note is not referenced by any state",
+                )
             )
 
     for sid, st in states.items():
         if len(st.get("choices", [])) == 1:
             issues.append(
-                Issue("warning", "single-choice", f"states.{sid}", "only one choice; use goto instead")
+                Issue(
+                    "warning",
+                    "single-choice",
+                    f"states.{sid}",
+                    "only one choice; use goto instead",
+                )
             )
 
     # A cycle made only of on_exceed edges cannot terminate once every member is over its limit.
     exceed_graph = {
-        sid: [states[sid]["on_exceed"]] if sid in reachable and "on_exceed" in states[sid] else []
+        sid: [states[sid]["on_exceed"]]
+        if sid in reachable and "on_exceed" in states[sid]
+        else []
         for sid in states
     }
     for comp in _sccs(exceed_graph):
@@ -522,9 +638,13 @@ def _localize(st: dict, reldir: str, prefix: str) -> dict:
     if "prompt" in out:
         out["prompt"] = _rewrite_text(out["prompt"], reldir)
     if "choices" in out:
-        out["choices"] = [{**c, "when": _rewrite_text(c["when"], reldir)} for c in out["choices"]]
+        out["choices"] = [
+            {**c, "when": _rewrite_text(c["when"], reldir)} for c in out["choices"]
+        ]
     if "run" in out:  # ${DEF_DIR} is the directory of the part that wrote the command
-        out["run"] = [a.replace(DEF_DIR_VAR, f"{DEF_DIR_VAR}/{reldir}") for a in out["run"]]
+        out["run"] = [
+            a.replace(DEF_DIR_VAR, f"{DEF_DIR_VAR}/{reldir}") for a in out["run"]
+        ]
     if "cwd" in out:
         out["cwd"] = posixpath.normpath(posixpath.join(reldir, out["cwd"]))
     return out
@@ -543,8 +663,15 @@ def _map_edges(st: dict, fn) -> dict:
 
 
 def _expand_include(
-    sid: str, st: dict, base: Path, reldir: str, prefix: str, stack: list[Path], read,
-    issues: list[Issue], label: str,
+    sid: str,
+    st: dict,
+    base: Path,
+    reldir: str,
+    prefix: str,
+    stack: list[Path],
+    read,
+    issues: list[Issue],
+    label: str,
 ) -> tuple[dict, dict, str] | None:
     """Load and expand the part named by an include state: (states, common notes, entry state).
 
@@ -556,7 +683,12 @@ def _expand_include(
     rel = st["include"]
     norm = posixpath.normpath(rel)
     if os.path.isabs(rel) or norm == ".." or norm.startswith("../"):
-        _err(issues, "include-outside", f"{where}.include", f"'{rel}' is outside the definition directory")
+        _err(
+            issues,
+            "include-outside",
+            f"{where}.include",
+            f"'{rel}' is outside the definition directory",
+        )
         return None
     # The path is judged as written (not after following symlinks): a symlink is how a part
     # is shared between definitions.
@@ -570,7 +702,12 @@ def _expand_include(
         _err(issues, "include-missing", f"{where}.include", f"file not found: {rel}")
         return None
     if real in stack:
-        _err(issues, "include-cycle", f"{where}.include", f"'{rel}' includes itself (directly or not)")
+        _err(
+            issues,
+            "include-cycle",
+            f"{where}.include",
+            f"'{rel}' includes itself (directly or not)",
+        )
         return None
     try:
         sub_raw = read(target)
@@ -578,13 +715,26 @@ def _expand_include(
         _err(issues, "include-unreadable", f"{where}.include", str(e))
         return None
     sub_label = f"{label}{norm}: "
-    sub_issues = [Issue(i.level, i.code, sub_label + i.where, i.message) for i in lint_schema(sub_raw, target.parent)]
+    sub_issues = [
+        Issue(i.level, i.code, sub_label + i.where, i.message)
+        for i in lint_schema(sub_raw, target.parent)
+    ]
     issues.extend(sub_issues)
     if any(i.level == "error" for i in sub_issues):
         return None
-    sub_reldir = posixpath.normpath(posixpath.join(reldir, posixpath.dirname(norm) or "."))
+    sub_reldir = posixpath.normpath(
+        posixpath.join(reldir, posixpath.dirname(norm) or ".")
+    )
     states, common, start, ends = _expand_level(
-        sub_raw, target.parent, sub_reldir, prefix, True, [*stack, real], read, issues, sub_label
+        sub_raw,
+        target.parent,
+        sub_reldir,
+        prefix,
+        True,
+        [*stack, real],
+        read,
+        issues,
+        sub_label,
     )
     if isinstance(start, _Exit):
         _err(issues, "include-start-end", where, f"'{rel}' starts at an end state")
@@ -592,17 +742,34 @@ def _expand_include(
     exits = st.get("exits", {})
     missing, unknown = sorted(ends - set(exits)), sorted(set(exits) - ends)
     for end_id in missing:
-        _err(issues, "exits-missing", f"{where}.exits", f"no exit for the end state '{end_id}' of {rel}")
+        _err(
+            issues,
+            "exits-missing",
+            f"{where}.exits",
+            f"no exit for the end state '{end_id}' of {rel}",
+        )
     for end_id in unknown:
-        _err(issues, "exits-unknown", f"{where}.exits.{end_id}", f"'{end_id}' is not an end state of {rel}")
+        _err(
+            issues,
+            "exits-unknown",
+            f"{where}.exits.{end_id}",
+            f"'{end_id}' is not an end state of {rel}",
+        )
     if missing or unknown:
         return None
     return states, common, start
 
 
 def _expand_level(
-    raw: dict, base: Path, reldir: str, prefix: str, is_sub: bool, stack: list[Path], read,
-    issues: list[Issue], label: str,
+    raw: dict,
+    base: Path,
+    reldir: str,
+    prefix: str,
+    is_sub: bool,
+    stack: list[Path],
+    read,
+    issues: list[Issue],
+    label: str,
 ) -> tuple[dict, dict, str | _Exit, set[str]]:
     """Expand the include states of one (already schema-checked) definition.
 
@@ -612,15 +779,27 @@ def _expand_level(
     src = raw["states"]
     notes = raw.get("notes", {})
     always = [_rewrite_text(a, reldir) for a in notes.get("always", [])]
-    common = {prefix + n: _rewrite_text(v, reldir) for n, v in notes.get("common", {}).items()}
+    common = {
+        prefix + n: _rewrite_text(v, reldir) for n, v in notes.get("common", {}).items()
+    }
     out: dict[str, dict] = {}
     entries: dict[str, str] = {}  # include state id -> entry state of its part
-    parts: dict[str, tuple[dict, dict]] = {}  # include state id -> (its part's states, exits)
+    parts: dict[
+        str, tuple[dict, dict]
+    ] = {}  # include state id -> (its part's states, exits)
     for sid, st in src.items():
         if "include" not in st:
             continue
         res = _expand_include(
-            sid, st, base, reldir, f"{prefix}{sid}{INCLUDE_SEP}", stack, read, issues, label
+            sid,
+            st,
+            base,
+            reldir,
+            f"{prefix}{sid}{INCLUDE_SEP}",
+            stack,
+            read,
+            issues,
+            label,
         )
         if res is None:
             entries[sid] = prefix + sid  # the error is already reported
@@ -630,7 +809,12 @@ def _expand_level(
         parts[sid] = (sub_states, st.get("exits", {}))
         for name, item in sub_common.items():
             if name in common:
-                _err(issues, "id-collision", f"{label}notes.common.{name}", f"note name '{name}' is defined twice")
+                _err(
+                    issues,
+                    "id-collision",
+                    f"{label}notes.common.{name}",
+                    f"note name '{name}' is defined twice",
+                )
             common[name] = item
 
     def local(target: str) -> str | _Exit:
@@ -642,15 +826,25 @@ def _expand_level(
 
     def add(new_id: str, st: dict) -> None:
         if new_id in out:
-            _err(issues, "id-collision", f"{label}states.{new_id}", f"state id '{new_id}' is defined twice")
+            _err(
+                issues,
+                "id-collision",
+                f"{label}states.{new_id}",
+                f"state id '{new_id}' is defined twice",
+            )
         out[new_id] = st
 
-    for sid, st in src.items():  # in definition order; a part's states take its include's place
+    for (
+        sid,
+        st,
+    ) in src.items():  # in definition order; a part's states take its include's place
         if sid in parts:
             sub_states, exits = parts[sid]
 
             def through_exits(target, exits=exits):
-                return local(exits[target.end_id]) if isinstance(target, _Exit) else target
+                return (
+                    local(exits[target.end_id]) if isinstance(target, _Exit) else target
+                )
 
             for sub_id, sub_st in sub_states.items():
                 add(sub_id, _map_edges(sub_st, through_exits))
@@ -672,8 +866,15 @@ def expand_includes(raw: dict, path: Path, read=read_toml) -> tuple[dict, list[I
     """
     issues: list[Issue] = []
     root = path.resolve()
-    states, common, start, _ = _expand_level(raw, root.parent, ".", "", False, [root], read, issues, "")
-    return {"schema": 1, "start": start, "notes": {"common": common}, "states": states}, issues
+    states, common, start, _ = _expand_level(
+        raw, root.parent, ".", "", False, [root], read, issues, ""
+    )
+    return {
+        "schema": 1,
+        "start": start,
+        "notes": {"common": common},
+        "states": states,
+    }, issues
 
 
 def lint(path: Path) -> list[Issue]:
@@ -759,7 +960,9 @@ class State:
     timeout: int | None = None
     cwd: str | None = None
     output_lines: int | None = None
-    always: tuple[Text, ...] = ()  # notes.always of the definition that wrote this state
+    always: tuple[
+        Text, ...
+    ] = ()  # notes.always of the definition that wrote this state
 
 
 @dataclass(frozen=True)
@@ -770,7 +973,9 @@ class Definition:
     always: tuple[Text, ...]  # notes.always of the root definition
     common: dict[str, Text]
     states: dict[str, State]
-    sources: dict[Path, bytes] = field(default_factory=dict)  # every file read, with its bytes
+    sources: dict[Path, bytes] = field(
+        default_factory=dict
+    )  # every file read, with its bytes
     hash: str = ""  # identifies the exact text of all the files
 
 
@@ -792,7 +997,12 @@ def _definition_hash(path: Path, sources: dict[Path, bytes]) -> str:
     """sha256 of the root file; with includes, of the root and every part (names included)."""
     h = hashlib.sha256(sources[path])
     for part in sorted(p for p in sources if p != path):
-        h.update(b"\0" + part.relative_to(path.parent).as_posix().encode() + b"\0" + sources[part])
+        h.update(
+            b"\0"
+            + part.relative_to(path.parent).as_posix().encode()
+            + b"\0"
+            + sources[part]
+        )
     return h.hexdigest()
 
 
@@ -878,14 +1088,20 @@ def render_command(result: dict) -> str:
 
 
 def render_step(
-    defn: Definition, state_id: str, run_id: str, cmd: str = "flow", command: dict | None = None
+    defn: Definition,
+    state_id: str,
+    run_id: str,
+    cmd: str = "flow",
+    command: dict | None = None,
 ) -> str:
     """Render what the LLM sees for one state. Reads only the files that state needs.
 
     `command` is the outcome of the state's `run` (see execute_state), if there is one.
     """
     st = defn.states[state_id]
-    sections = [f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"]
+    sections = [
+        f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"
+    ]
 
     notes: list[str] = []
     for item in [*st.always, *(defn.common[n] for n in st.notes)]:
@@ -915,7 +1131,9 @@ def render_step(
             f"{read_text_value(c.when, defn.base_dir)}"
             for c in st.choices
         ]
-        header = "After finishing the work, report the result with one of the following:"
+        header = (
+            "After finishing the work, report the result with one of the following:"
+        )
         sections.append("\n".join([header, *lines]))
     else:
         sections.append(f"After finishing the work, run:\n  {cmd} next {run_id}")
@@ -938,9 +1156,13 @@ class Run:
     visits: dict[str, int]
     history: list[dict]  # {"state", "label", "at"}
     status: str  # "running" or "ended"
-    ref: str = DEFAULT_REF  # commands run only if the definition equals this git ref's copy
+    ref: str = (
+        DEFAULT_REF  # commands run only if the definition equals this git ref's copy
+    )
     cwd: str = ""  # where `start` ran; the default working directory of commands
-    commands: list[dict] = field(default_factory=list)  # one record per command step entered
+    commands: list[dict] = field(
+        default_factory=list
+    )  # one record per command step entered
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -983,7 +1205,9 @@ def save_run(state_dir: Path, run: Run) -> None:
     """Write the run atomically (temp file + rename)."""
     state_dir.mkdir(parents=True, exist_ok=True)
     path = _run_path(state_dir, run.run_id)
-    fd, tmp_name = tempfile.mkstemp(dir=state_dir, prefix=f"{run.run_id}.", suffix=".tmp")
+    fd, tmp_name = tempfile.mkstemp(
+        dir=state_dir, prefix=f"{run.run_id}.", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n")
@@ -1001,13 +1225,21 @@ def _new_run_id(state_dir: Path) -> str:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
         run_id = f"{stamp}-{suffix}"
         try:
-            os.close(os.open(_run_path(state_dir, run_id), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            os.close(
+                os.open(
+                    _run_path(state_dir, run_id),
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o644,
+                )
+            )
         except FileExistsError:
             continue
         return run_id
 
 
-def step_target(defn: Definition, visits: dict[str, int], current: str, label: str | None) -> str:
+def step_target(
+    defn: Definition, visits: dict[str, int], current: str, label: str | None
+) -> str:
     """Return the state to enter next, applying max_visits / on_exceed."""
     st = defn.states[current]
     if st.end:
@@ -1083,7 +1315,11 @@ def _check_links(source: Path, base: Path, ref: str) -> str | None:
 
 def _toplevel(directory: Path) -> str | None:
     proc = _git(directory, "rev-parse", "--show-toplevel")
-    return proc.stdout.decode("utf-8", errors="replace").strip() if proc.returncode == 0 else None
+    return (
+        proc.stdout.decode("utf-8", errors="replace").strip()
+        if proc.returncode == 0
+        else None
+    )
 
 
 def _ref_check(defn: Definition, ref: str) -> str | None:
@@ -1109,8 +1345,12 @@ def _ref_check(defn: Definition, ref: str) -> str | None:
             if proc.returncode != 0:
                 return f"cannot read {real.name} at ref '{ref}': {_git_fail(proc)}"
             if proc.stdout != data:
-                name = "the definition" if source == defn.path else (
-                    f"the included file '{source.relative_to(defn.base_dir).as_posix()}'"
+                name = (
+                    "the definition"
+                    if source == defn.path
+                    else (
+                        f"the included file '{source.relative_to(defn.base_dir).as_posix()}'"
+                    )
                 )
                 return f"{name} differs from ref '{ref}'"
     except (OSError, subprocess.SubprocessError) as e:
@@ -1134,11 +1374,21 @@ def execute_state(
     limit = st.output_lines or DEFAULT_OUTPUT_LINES
     timeout = st.timeout or DEFAULT_TIMEOUT
     rec: dict = {
-        "state": st.id, "visit": visit, "argv": expand_argv(list(st.run), defn.base_dir),
+        "state": st.id,
+        "visit": visit,
+        "argv": expand_argv(list(st.run), defn.base_dir),
         "executed": False,
-        "reason": "", "output_lines": limit, "timeout": timeout, "error": None,
-        "exit_code": None, "stdout": "", "stderr": "", "stdout_truncated": 0,
-        "stderr_truncated": 0, "stdout_file": None, "stderr_file": None,
+        "reason": "",
+        "output_lines": limit,
+        "timeout": timeout,
+        "error": None,
+        "exit_code": None,
+        "stdout": "",
+        "stderr": "",
+        "stdout_truncated": 0,
+        "stderr_truncated": 0,
+        "stdout_file": None,
+        "stderr_file": None,
     }
     reason = "dry run" if dry else _ref_check(defn, run.ref)
     if reason:
@@ -1164,7 +1414,9 @@ def execute_state(
         rec["exit_code"] = proc.returncode
     except subprocess.TimeoutExpired:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)  # the whole group, so grandchildren die too
+            os.killpg(
+                proc.pid, signal.SIGKILL
+            )  # the whole group, so grandchildren die too
         except OSError:
             proc.kill()
         try:
@@ -1213,13 +1465,19 @@ def start_run(
         out = _enter(defn, run, state_dir, cmd)
         save_run(state_dir, run)
     except BaseException:
-        _run_path(state_dir, run.run_id).unlink(missing_ok=True)  # release the reserved id
+        _run_path(state_dir, run.run_id).unlink(
+            missing_ok=True
+        )  # release the reserved id
         raise
     return out
 
 
 def next_step(
-    run_id: str, label: str | None, state_dir: Path, cmd: str = "flow", force: bool = False
+    run_id: str,
+    label: str | None,
+    state_dir: Path,
+    cmd: str = "flow",
+    force: bool = False,
 ) -> str:
     """Record the result of the current step and return the next step's output.
 
@@ -1238,7 +1496,9 @@ def next_step(
             f"definition changed since the run started: {path} (use --force to continue anyway)"
         )
     if run.current not in defn.states:
-        raise FlowError(f"current state '{run.current}' no longer exists in the definition")
+        raise FlowError(
+            f"current state '{run.current}' no longer exists in the definition"
+        )
 
     target = step_target(defn, run.visits, run.current, label)
     run.history.append(
@@ -1303,9 +1563,7 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
     """
     defn = load_definition(defn_path)
     if results is None:
-        return DRY_RUN_SEPARATOR.join(
-            _dry_step(defn, sid, cmd) for sid in defn.states
-        )
+        return DRY_RUN_SEPARATOR.join(_dry_step(defn, sid, cmd) for sid in defn.states)
 
     queue = list(results)
     visits = {defn.start: 1}
@@ -1392,9 +1650,13 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
     """
     old_re = re.escape(old)
     # Accept `[states.b]`, `[states . b]` and `[states."b"]` (the quotes are kept).
-    head_re = re.compile(rf"""^(\s*\[\[?\s*states\s*\.\s*)(["']?){old_re}\2(?=[.\]\s])""")
+    head_re = re.compile(
+        rf"""^(\s*\[\[?\s*states\s*\.\s*)(["']?){old_re}\2(?=[.\]\s])"""
+    )
     # A key must start the line, or follow `{` / `,` inside an inline table.
-    key_re = re.compile(rf"""(?:^|(?<=[{{,]))(\s*)(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\4""")
+    key_re = re.compile(
+        rf"""(?:^|(?<=[{{,]))(\s*)(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\4"""
+    )
     out: list[str] = []
     delim: str | None = None  # open multi-line string delimiter, if inside one
     for line in text.splitlines(keepends=True):
@@ -1405,9 +1667,14 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
             continue
         if not line.lstrip().startswith("#"):
             code, comment = _split_comment(line)
-            code = head_re.sub(lambda m: f"{m.group(1)}{m.group(2)}{new}{m.group(2)}", code)
+            code = head_re.sub(
+                lambda m: f"{m.group(1)}{m.group(2)}{new}{m.group(2)}", code
+            )
             code = key_re.sub(
-                lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{new}{m.group(4)}", code
+                lambda m: (
+                    f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{new}{m.group(4)}"
+                ),
+                code,
             )
             line = code + comment
             for d in ('"""', "'''"):
@@ -1447,7 +1714,7 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
             f"cannot find the table header of state '{old}' in a supported form "
             f"([states.{old}]); {path} was not changed"
         )
-    tmp =path.with_name(path.name + ".rename.tmp")
+    tmp = path.with_name(path.name + ".rename.tmp")
     tmp.write_bytes(new_text.encode("utf-8"))
     try:
         after = errors_of(tmp)
@@ -1468,7 +1735,10 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
 
 def _default_cmd() -> str:
     """The command prefix printed in 'next' hints; copy-pasteable as is."""
-    return os.environ.get("FLOW_CMD") or f"uv run {shlex.quote(str(Path(sys.argv[0]).absolute()))}"
+    return (
+        os.environ.get("FLOW_CMD")
+        or f"uv run {shlex.quote(str(Path(sys.argv[0]).absolute()))}"
+    )
 
 
 def _resolve_state_dir(arg: Path | None) -> Path:
@@ -1485,10 +1755,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="directory for run state files (default: $FLOW_STATE_DIR or ./.flow/runs)",
     )
-    parser = argparse.ArgumentParser(prog="flow", description="Step-by-step flow runner.")
+    parser = argparse.ArgumentParser(
+        prog="flow", description="Step-by-step flow runner."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("start", parents=[common], help="start a run and print the first step")
+    p = sub.add_parser(
+        "start", parents=[common], help="start a run and print the first step"
+    )
     p.add_argument("definition", type=Path)
     p.add_argument(
         "--ref",
@@ -1497,10 +1771,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "a definition that differs from it is shown only",
     )
 
-    p = sub.add_parser("next", parents=[common], help="record a result and print the next step")
+    p = sub.add_parser(
+        "next", parents=[common], help="record a result and print the next step"
+    )
     p.add_argument("run_id")
     p.add_argument("--result", help="the chosen result label")
-    p.add_argument("--force", action="store_true", help="continue even if the definition changed")
+    p.add_argument(
+        "--force", action="store_true", help="continue even if the definition changed"
+    )
 
     p = sub.add_parser("status", parents=[common], help="show where a run is")
     p.add_argument("run_id")
@@ -1518,7 +1796,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("definition", type=Path)
     p.add_argument("--results", help="comma-separated result labels to walk through")
 
-    p = sub.add_parser("graph", help="print the state transitions as a Mermaid flowchart")
+    p = sub.add_parser(
+        "graph", help="print the state transitions as a Mermaid flowchart"
+    )
     p.add_argument("definition", type=Path)
 
     p = sub.add_parser("rename", help="rename a state and all references to it")
@@ -1557,7 +1837,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "start":
             out = start_run(args.definition, state_dir, _default_cmd(), args.ref)
         elif args.command == "next":
-            out = next_step(args.run_id, args.result, state_dir, _default_cmd(), args.force)
+            out = next_step(
+                args.run_id, args.result, state_dir, _default_cmd(), args.force
+            )
         else:
             out = status_text(args.run_id, state_dir)
         sys.stdout.write(out)

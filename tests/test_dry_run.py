@@ -50,7 +50,9 @@ def test_dry_run_follows_results_to_end(flow, path):
     out = flow.dry_run(path, ["again", "stop"], "flow")
     order = [out.index(f"[{s}] (run: dry-run)") for s in ("a", "w")]
     assert order == sorted(order)
-    assert out.count("[a] (run: dry-run)") == 2  # a -> w -> a (goto step needs no result)
+    assert (
+        out.count("[a] (run: dry-run)") == 2
+    )  # a -> w -> a (goto step needs no result)
     assert out.rstrip().endswith("Flow complete.")
     assert "results" not in out.split("Flow complete.")[-1]
 
