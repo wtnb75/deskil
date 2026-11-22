@@ -9,7 +9,8 @@ always = [
 ]
 
 [states.pick]
-prompt = """If the user named an item, use it. Otherwise run `backlog.py list --status ready` and take the first item
+prompt = """If the user named an item, use it. Otherwise run `git fetch --prune origin`, then `backlog.py list --status ready --not-started`
+(it hides items that already have a `backlog/<ID>-*` branch on origin, i.e. work in progress) and take the first item
 that is not marked blocked (the list is ordered by priority).
 Run `backlog.py show <ID>` and read its 判断: it is the approach to implement."""
 

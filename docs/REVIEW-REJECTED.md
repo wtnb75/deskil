@@ -13,3 +13,14 @@
 - simplify（simplification）/ `read_toml` と `lint_raw` の薄いラッパー、`_expand_level` の引数の束ね: 却下: 既存の公開関数とテストが使っており、整理の利益が小さい。
 - simplify（efficiency）/ `_ref_check` の `git show` を state ごとに繰り返す、部品の再パース: 却下: 定義の規模では数十 ms で、毎回の再検査は `--force` での差し替えを防ぐために意図したもの。
 - security-review: 指摘なし（`_ref_check` の symlink 差し替えは、別の自動レビューの指摘として採用し、修正済み）。
+
+## B-031
+
+- code-review / `shared/backlog/backlog.py:197` `started_ids`: PR を閉じただけでブランチが残った項目が、警告なしに除かれる。却下: ブランチの有無で判定する方針は B-031 の判断で決定済み。残ったブランチの掃除は運用側の話で、隠れた ID の表示は別項目にする。
+- code-review・altitude / `started_ids`: git を `--file` のあるリポジトリでなく cwd で実行し、リモート名 `origin` も固定。却下: `impl` は常にリポジトリの中で実行し、`origin` は flow の他の手順（`origin/<default branch>`）と同じ前提。判断にも「`refs/remotes/origin/backlog/<ID>-*`」とある。
+- code-review・altitude・simplify / `started_ids` の `B-\d+` が、パーサーの ID の正規表現と重複: 却下: 現状は `\d+` が `\d{3,}` の上位集合で害がなく、ID の形式を変える項目が出たときに直せばよい。
+- simplify（simplification）/ `started_ids` の正規表現の二段階の処理と `getattr(exc, "stderr")`: 却下: 好みの範囲で、動作は変わらない。
+- simplify・reuse / テストの `git()` ヘルパーと関数内の `import subprocess`: 却下: 既存の 2 つのテストにも同様のヘルパーがあり、共通化は関係のないテストを触る範囲外の改修になる。
+- reuse / `started_ids` の `git` 呼び出しに `timeout` と `stdin=DEVNULL` がない: 却下: ローカルの ref を読むだけで、固まる経路がない。
+- efficiency・altitude: 指摘なし。
+- security-review: 指摘なし。
