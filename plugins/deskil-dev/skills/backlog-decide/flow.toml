@@ -1,0 +1,99 @@
+schema = 1
+start = "pick"
+
+[notes]
+always = [
+  "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format and the meaning of each state: follow it.",
+  "A decision belongs to the user. Never move an item to ready or dropped before the user has chosen.",
+  "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",
+]
+
+[states.pick]
+prompt = """If the user named an item, use it. Otherwise run `backlog.py list --status todo` and take the first item
+that is not marked blocked (the list is ordered by priority)."""
+
+[[states.pick.choices]]
+label = "found"
+when = "A todo item was chosen"
+goto = "investigate"
+
+[[states.pick.choices]]
+label = "none"
+when = "No todo item can be decided now (none exist, all are blocked, or the named item is not todo)"
+goto = "report_none"
+
+[states.investigate]
+prompt = """Run `backlog.py show <ID>` and read the item, including what is still undecided.
+Then read the code and documents it touches, so that the options you give are concrete."""
+goto = "options"
+
+[states.options]
+prompt = """Give the user 2 or 3 real options for how to do the item (drop weak ones), each with what it trades off,
+and say which one you recommend and why. Include "drop the item" or "not decidable yet" when they are real answers.
+If the superpowers:brainstorming skill is available, use it for this step; otherwise do it yourself."""
+goto = "confirm"
+
+[states.confirm]
+prompt = "Ask the user which option they choose, and wait for the answer."
+
+[[states.confirm.choices]]
+label = "ready"
+when = "The user chose an approach to implement"
+goto = "write_decision"
+
+[[states.confirm.choices]]
+label = "dropped"
+when = "The user decided not to do the item"
+goto = "drop"
+
+[[states.confirm.choices]]
+label = "defer"
+when = "The user cannot decide yet (more is needed first)"
+goto = "note_open"
+
+[states.write_decision]
+prompt = """Write the chosen approach and the reason in the item's 判断 (one line) with Edit.
+Then run `backlog.py set <ID> 状態 ready`."""
+goto = "lint"
+
+[states.drop]
+prompt = """Write the reason in the item's 判断 (one line) with Edit.
+Then run `backlog.py archive <ID> --dropped`."""
+goto = "lint"
+
+[states.note_open]
+prompt = """Add what you learned and what is still open to the item's 概要 with Edit (keep it on one line).
+Do not change the item's 状態."""
+goto = "lint"
+
+[states.lint]
+prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint printed nothing"
+goto = "report"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint printed one or more problems"
+goto = "fix"
+
+[states.fix]
+prompt = "Read the problems that `backlog.py lint` printed (file:line: message) and fix their causes. Do not change anything else."
+goto = "lint"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.report]
+prompt = "Tell the user what was decided for the item (ready, dropped or still open), and show the item with `backlog.py show <ID>`."
+end = true
+
+[states.report_none]
+prompt = "Tell the user that there is no todo item to decide now, and why. Suggest backlog-add or backlog-prioritize if that helps."
+end = true
+
+[states.report_fail]
+prompt = """Tell the user that the backlog still fails lint after two fix attempts, and list the remaining problems.
+Do not claim that the decision was recorded cleanly."""
+end = true

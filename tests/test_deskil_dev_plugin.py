@@ -109,6 +109,54 @@ def test_prioritize_lint_failures_end_unchanged_report(tmp_path):
     assert visited(out).count("fix_prio") == 2
 
 
+def test_decide_paths(tmp_path):
+    head = ["pick", "investigate", "options", "confirm"]
+    assert visited(dry_run("backlog-decide", ["found", "ready", "ok"], tmp_path)) == head + [
+        "write_decision",
+        "lint",
+        "report",
+    ]
+    assert visited(dry_run("backlog-decide", ["found", "dropped", "ok"], tmp_path)) == head + ["drop", "lint", "report"]
+    assert visited(dry_run("backlog-decide", ["found", "defer", "ok"], tmp_path)) == head + [
+        "note_open",
+        "lint",
+        "report",
+    ]
+    assert visited(dry_run("backlog-decide", ["none"], tmp_path)) == ["pick", "report_none"]
+
+
+def test_decide_lint_failures_end_in_report_fail(tmp_path):
+    out = dry_run("backlog-decide", ["found", "ready", "errors", "errors", "errors"], tmp_path)
+    assert visited(out)[-1] == "report_fail"
+
+
+def test_implement_happy_path_order(tmp_path):
+    out = dry_run("backlog-implement", ["found", "pass"], tmp_path)
+    assert visited(out) == [
+        "pick",
+        "prepare",
+        "plan",
+        "implement",
+        "verify",
+        "commit",
+        "open_pr",
+        "finish_backlog",
+        "report",
+    ]
+    assert out.endswith("Flow complete.\n")
+
+
+def test_implement_failure_limit_skips_the_pr(tmp_path):
+    out = dry_run("backlog-implement", ["found", "fail", "fail", "fail"], tmp_path)
+    assert visited(out)[-1] == "report_fail"
+    assert visited(out).count("fix") == 2
+    assert "open_pr" not in visited(out)
+
+
+def test_implement_with_nothing_ready_stops_early(tmp_path):
+    assert visited(dry_run("backlog-implement", ["none"], tmp_path)) == ["pick", "report_none"]
+
+
 # --- skills (the ones that exist so far) -----------------------------------
 
 

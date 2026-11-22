@@ -1,0 +1,93 @@
+schema = 1
+start = "pick"
+
+[notes]
+always = [
+  "This skill ends at an open pull request. Never merge it, never push to the default branch, never force-push.",
+  "The backlog is docs/BACKLOG.md in the current project. Change states only with `backlog.py` (set / archive).",
+  "Follow the project's own rules (CLAUDE.md): language of code and docs, tools, commit style.",
+]
+
+[states.pick]
+prompt = """If the user named an item, use it. Otherwise run `backlog.py list --status ready` and take the first item
+that is not marked blocked (the list is ordered by priority).
+Run `backlog.py show <ID>` and read its 判断: it is the approach to implement."""
+
+[[states.pick.choices]]
+label = "found"
+when = "A ready, unblocked item was chosen and its 判断 was read"
+goto = "prepare"
+
+[[states.pick.choices]]
+label = "none"
+when = "No ready and unblocked item exists, or the named item cannot be implemented now"
+goto = "report_none"
+
+[states.prepare]
+prompt = """Make sure the working tree is clean (`git status --short` prints nothing) and that you start from the
+project's default branch, up to date. If the tree is not clean, stop here: tell the user and do not run the next command.
+Create the branch `backlog/<ID>-<slug>` (slug: the item title as lowercase ASCII words joined by hyphens).
+If a worktree skill or tool is available, you may create the branch in a worktree instead."""
+goto = "plan"
+
+[states.plan]
+prompt = """Turn the item's 判断 into a plan. A small change needs only a short list in your reply;
+a larger one gets a plan file under docs/superpowers/plans/ (if the superpowers:writing-plans skill is available, use it).
+Do not widen the scope beyond the item."""
+goto = "implement"
+
+[states.implement]
+prompt = """Implement the plan, writing each test first and watching it fail before the code
+(if the superpowers:test-driven-development skill is available, use it).
+Keep the change inside the scope of the item."""
+goto = "verify"
+
+[states.verify]
+prompt = """Run the project's tests and lint: `task test` and `task lint` if the Taskfile has them, otherwise the commands
+named in the project's CLAUDE.md or README. Read the whole result."""
+
+[[states.verify.choices]]
+label = "pass"
+when = "Tests and lint both passed"
+goto = "commit"
+
+[[states.verify.choices]]
+label = "fail"
+when = "A test or the lint failed"
+goto = "fix"
+
+[states.fix]
+prompt = "Find the cause of each failure and fix it. Do not weaken or delete a test to make it pass."
+goto = "verify"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.commit]
+prompt = """Commit the work in logical commits that follow the project's commit rules.
+Do not include the backlog change yet."""
+goto = "open_pr"
+
+[states.open_pr]
+prompt = """Push the branch and create the pull request with `gh pr create`: the title names the item (ID and title),
+the body summarizes the change and the test results. Do not merge it. Note the PR number and URL."""
+goto = "finish_backlog"
+
+[states.finish_backlog]
+prompt = """Run `backlog.py archive <ID> --done --pr <N>` with the PR number, then `backlog.py lint` (it must print nothing).
+Commit the backlog change as its own commit and push it to the same branch."""
+goto = "report"
+
+[states.report]
+prompt = """Report the PR URL, what was implemented and the test results.
+Say clearly that the pull request is not merged."""
+end = true
+
+[states.report_none]
+prompt = """Tell the user that no item can be implemented now and why (nothing is ready, every ready item is blocked,
+or the named item is not ready). If a todo item is the candidate, suggest backlog-decide to make it ready."""
+end = true
+
+[states.report_fail]
+prompt = """Tell the user that tests or lint still fail after two fix attempts. Report the failing output,
+the branch name and the state of the work. Do not open a pull request and do not mark the item done."""
+end = true
