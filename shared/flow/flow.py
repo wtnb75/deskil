@@ -6,12 +6,14 @@ Single file, standard library only (Python 3.11+).
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import random
 import re
 import string
+import sys
 import tomllib
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -652,3 +654,72 @@ def status_text(run_id: str, state_dir: Path) -> str:
     else:
         lines.append("History: (none)")
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# command line
+# ---------------------------------------------------------------------------
+
+
+def _default_cmd() -> str:
+    """The command prefix printed in 'next' hints; copy-pasteable as is."""
+    return os.environ.get("FLOW_CMD") or f"uv run {Path(sys.argv[0]).absolute()}"
+
+
+def _resolve_state_dir(arg: Path | None) -> Path:
+    if arg is not None:
+        return arg
+    env = os.environ.get("FLOW_STATE_DIR")
+    return Path(env) if env else Path.cwd() / ".flow" / "runs"
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--state-dir",
+        type=Path,
+        help="directory for run state files (default: $FLOW_STATE_DIR or ./.flow/runs)",
+    )
+    parser = argparse.ArgumentParser(prog="flow", description="Step-by-step flow runner.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("start", parents=[common], help="start a run and print the first step")
+    p.add_argument("definition", type=Path)
+
+    p = sub.add_parser("next", parents=[common], help="record a result and print the next step")
+    p.add_argument("run_id")
+    p.add_argument("--result", help="the chosen result label")
+    p.add_argument("--force", action="store_true", help="continue even if the definition changed")
+
+    p = sub.add_parser("status", parents=[common], help="show where a run is")
+    p.add_argument("run_id")
+
+    p = sub.add_parser("lint", help="check a definition")
+    p.add_argument("definition", type=Path)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    try:
+        if args.command == "lint":
+            issues = lint(args.definition)
+            for issue in issues:
+                print(format_issue(issue))
+            return 1 if any(i.level == "error" for i in issues) else 0
+        state_dir = _resolve_state_dir(args.state_dir)
+        if args.command == "start":
+            out = start_run(args.definition, state_dir, _default_cmd())
+        elif args.command == "next":
+            out = next_step(args.run_id, args.result, state_dir, _default_cmd(), args.force)
+        else:
+            out = status_text(args.run_id, state_dir)
+        sys.stdout.write(out)
+        return 0
+    except FlowError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
