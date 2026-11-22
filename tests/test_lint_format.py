@@ -79,7 +79,9 @@ def test_json_warning_only_exits_0(flow, write_def, tmp_path, capsys):
 def test_github_error_and_warning_commands(flow, write_def, tmp_path, capsys):
     path, code, cap = lint(flow, write_def, tmp_path, BAD, "github", capsys)
     assert code == 1
-    assert cap.out == f"::error file={path}::[unknown-key] states.a: unknown key 'bogus'\n"
+    assert (
+        cap.out == f"::error file={path}::[unknown-key] states.a: unknown key 'bogus'\n"
+    )
     path, code, cap = lint(flow, write_def, tmp_path, WARN, "github", capsys, "w.toml")
     assert code == 0
     assert cap.out.startswith(f"::warning file={path}::[single-choice] states.a: ")
@@ -91,7 +93,9 @@ def test_github_escapes_properties_and_data(flow):
 
 
 @pytest.mark.parametrize("fmt", ["json", "github"])
-def test_unreadable_toml_is_reported_in_the_format(flow, write_def, tmp_path, capsys, fmt):
+def test_unreadable_toml_is_reported_in_the_format(
+    flow, write_def, tmp_path, capsys, fmt
+):
     path, code, cap = lint(flow, write_def, tmp_path, "not = [valid", fmt, capsys)
     assert code == 1 and cap.err == ""
     if fmt == "json":
@@ -101,7 +105,9 @@ def test_unreadable_toml_is_reported_in_the_format(flow, write_def, tmp_path, ca
         assert cap.out.startswith("::error file=") and "[read-error]" in cap.out
 
 
-def test_unreadable_toml_in_text_format_is_still_a_plain_error(flow, write_def, tmp_path, capsys):
+def test_unreadable_toml_in_text_format_is_still_a_plain_error(
+    flow, write_def, tmp_path, capsys
+):
     _, code, cap = lint(flow, write_def, tmp_path, "not = [valid", "text", capsys)
     assert code == 1 and cap.out == "" and cap.err.startswith("error: ")
 

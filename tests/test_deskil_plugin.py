@@ -17,13 +17,17 @@ def frontmatter(path: Path) -> dict[str, str]:
 
 
 def test_marketplace_lists_deskil():
-    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    market = json.loads(
+        (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
     entry = next(p for p in market["plugins"] if p["name"] == "deskil")
     assert entry["source"] == "./plugins/deskil"
 
 
 def test_plugin_json_names_deskil():
-    data = json.loads((CORE / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (CORE / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
     assert data["name"] == "deskil" and data["version"]
 
 
@@ -49,7 +53,12 @@ def test_author_skill_covers_the_authoring_commands():
 
 def test_convert_skill_covers_split_rule_and_verification():
     text = (CORE / "skills" / "flow-convert" / "SKILL.md").read_text(encoding="utf-8")
-    for needle in ("flow.py lint", "flow.py dry-run", "flow-author", "correspondence table"):
+    for needle in (
+        "flow.py lint",
+        "flow.py dry-run",
+        "flow-author",
+        "correspondence table",
+    ):
         assert needle in text
 
 

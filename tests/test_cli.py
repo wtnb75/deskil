@@ -83,7 +83,9 @@ def test_next_and_status_roundtrip(flow, env, capsys):
 
 
 def test_lint_exit_1_on_error_and_0_on_warning_only(flow, write_def, tmp_path, capsys):
-    bad = write_def(tmp_path, DEF.replace("[states.e]", "[states.e]\nbogus = 1"), "bad.toml")
+    bad = write_def(
+        tmp_path, DEF.replace("[states.e]", "[states.e]\nbogus = 1"), "bad.toml"
+    )
     assert flow.main(["lint", str(bad)]) == 1
     assert "error[unknown-key]" in capsys.readouterr().out
 
@@ -144,13 +146,19 @@ def test_usage_error_exits_2(flow):
 
 def test_subprocess_smoke(flow, env, write_def, tmp_path):
     ok = subprocess.run(
-        [sys.executable, flow.__file__, "lint", str(env[0])], capture_output=True, text=True
+        [sys.executable, flow.__file__, "lint", str(env[0])],
+        capture_output=True,
+        text=True,
     )
     assert ok.returncode == 0
 
-    bad = write_def(tmp_path, DEF.replace("[states.e]", "[states.e]\nbogus = 1"), "bad.toml")
+    bad = write_def(
+        tmp_path, DEF.replace("[states.e]", "[states.e]\nbogus = 1"), "bad.toml"
+    )
     res = subprocess.run(
-        [sys.executable, flow.__file__, "lint", str(bad)], capture_output=True, text=True
+        [sys.executable, flow.__file__, "lint", str(bad)],
+        capture_output=True,
+        text=True,
     )
     assert res.returncode == 1
     assert "error[unknown-key]" in res.stdout

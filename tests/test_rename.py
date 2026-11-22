@@ -66,7 +66,9 @@ def test_rename_leaves_prompt_text_and_comments_untouched(flow, p):
     assert "# [states.s3] is the final state" in text
 
 
-def test_rename_ignores_one_line_strings_and_trailing_comments(flow, write_def, tmp_path):
+def test_rename_ignores_one_line_strings_and_trailing_comments(
+    flow, write_def, tmp_path
+):
     text = (
         'schema = 1\nstart = "a"\n'
         "[states.a]\nprompt = 'Set goto = \"b\" in the config'\n"
@@ -142,11 +144,14 @@ def test_cli_rename(flow, p, capsys):
 
 @pytest.mark.parametrize("header", ["[states . s2]", '[states."s2"]', "[ states.s2 ]"])
 def test_rename_handles_spaced_and_quoted_headers(flow, write_def, tmp_path, header):
-    text = DEF.replace("[states.s2]\nprompt = \"Loop\"", f'{header}\nprompt = "Loop"')
+    text = DEF.replace('[states.s2]\nprompt = "Loop"', f'{header}\nprompt = "Loop"')
     path = write_def(tmp_path, text)
     flow.rename_state(path, "s2", "step_two")
     out = path.read_text(encoding="utf-8")
-    assert 'goto = "step_two"' in out and "step_two" in out.split("prompt = \"Loop\"")[0].splitlines()[-1]
+    assert (
+        'goto = "step_two"' in out
+        and "step_two" in out.split('prompt = "Loop"')[0].splitlines()[-1]
+    )
     assert flow.lint(path) == []
 
 

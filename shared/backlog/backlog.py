@@ -103,11 +103,26 @@ def parse(text: str) -> Backlog:
             close(no)
             m = ITEM_HEADING_RE.match(line)
             if section not in (SECTION_ACTIVE, SECTION_ARCHIVE):
-                problems.append(Problem(no + 1, "item heading outside the todo / ready and done / dropped sections"))
+                problems.append(
+                    Problem(
+                        no + 1,
+                        "item heading outside the todo / ready and done / dropped sections",
+                    )
+                )
             elif not m:
-                problems.append(Problem(no + 1, "malformed item heading (expected '### B-NNN title')"))
+                problems.append(
+                    Problem(
+                        no + 1, "malformed item heading (expected '### B-NNN title')"
+                    )
+                )
             else:
-                current = Item(id=m.group(1), title=m.group(2).strip(), section=section, start=no, end=len(lines))
+                current = Item(
+                    id=m.group(1),
+                    title=m.group(2).strip(),
+                    section=section,
+                    start=no,
+                    end=len(lines),
+                )
                 items.append(current)
             continue
         if current is not None:
@@ -138,7 +153,11 @@ def dependencies(item: Item) -> list[str]:
 def blocked_by(bl: Backlog, item: Item) -> list[str]:
     """Dependencies that are missing or not done."""
     by_id = {i.id: i for i in bl.items}
-    return [d for d in dependencies(item) if d not in by_id or by_id[d].get("状態") != "done"]
+    return [
+        d
+        for d in dependencies(item)
+        if d not in by_id or by_id[d].get("状態") != "done"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -171,13 +190,20 @@ def render_list(
     """Render the sorted list. `priority` keeps that priority or higher (items without one are dropped);
     `exclude` drops the given item ids; `limit` keeps the first N rows after sorting and filtering."""
     if priority is not None and priority not in PRIORITIES:
-        raise BacklogError(f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})")
+        raise BacklogError(
+            f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})"
+        )
     if limit is not None and limit < 1:
         raise BacklogError(f"invalid limit {limit} (use 1 or more)")
     items = sorted_items(bl, statuses)
     if priority is not None:
         cutoff = PRIORITIES.index(priority)
-        items = [i for i in items if i.get("優先度") in PRIORITIES and PRIORITIES.index(i.get("優先度")) <= cutoff]
+        items = [
+            i
+            for i in items
+            if i.get("優先度") in PRIORITIES
+            and PRIORITIES.index(i.get("優先度")) <= cutoff
+        ]
     if exclude:
         items = [i for i in items if i.id not in exclude]
     if limit is not None:
@@ -200,15 +226,25 @@ def started_ids() -> set[str]:
     Local-only branches are ignored on purpose: leftovers of merged or abandoned work would hide items."""
     try:
         proc = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/backlog/"],
+            [
+                "git",
+                "for-each-ref",
+                "--format=%(refname)",
+                "refs/remotes/origin/backlog/",
+            ],
             capture_output=True,
             text=True,
             check=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         detail = getattr(exc, "stderr", "") or str(exc)
-        raise BacklogError(f"cannot read remote branches with git: {detail.strip()}") from exc
-    found = (re.fullmatch(r"refs/remotes/origin/backlog/(B-\d+)(?:-.*)?", ref) for ref in proc.stdout.split())
+        raise BacklogError(
+            f"cannot read remote branches with git: {detail.strip()}"
+        ) from exc
+    found = (
+        re.fullmatch(r"refs/remotes/origin/backlog/(B-\d+)(?:-.*)?", ref)
+        for ref in proc.stdout.split()
+    )
     return {m.group(1) for m in found if m}
 
 
@@ -263,7 +299,12 @@ def _lint_item(item: Item) -> list[Problem]:
 
     def invalid(key: str, ok: bool) -> None:
         if not ok:
-            problems.append(Problem(_field_line(item, key), f"{item.id}: invalid {key} {item.get(key)!r}"))
+            problems.append(
+                Problem(
+                    _field_line(item, key),
+                    f"{item.id}: invalid {key} {item.get(key)!r}",
+                )
+            )
 
     required = list(REQUIRED_KEYS)
     state = item.get("状態")
@@ -289,12 +330,25 @@ def _lint_item(item: Item) -> list[Problem]:
     if not missing("PR"):
         invalid("PR", bool(PR_RE.match(item.get("PR") or "")))
     if state == "dropped" and item.get("PR") is not None:
-        problems.append(Problem(_field_line(item, "PR"), f"{item.id}: PR must not be set on a dropped item"))
+        problems.append(
+            Problem(
+                _field_line(item, "PR"),
+                f"{item.id}: PR must not be set on a dropped item",
+            )
+        )
 
-    expected = {"todo": SECTION_ACTIVE, "ready": SECTION_ACTIVE, "done": SECTION_ARCHIVE, "dropped": SECTION_ARCHIVE}
+    expected = {
+        "todo": SECTION_ACTIVE,
+        "ready": SECTION_ACTIVE,
+        "done": SECTION_ARCHIVE,
+        "dropped": SECTION_ARCHIVE,
+    }
     if state in expected and item.section != expected[state]:
         problems.append(
-            Problem(_field_line(item, "状態"), f"{item.id}: a {state} item belongs in the '{expected[state]}' section")
+            Problem(
+                _field_line(item, "状態"),
+                f"{item.id}: a {state} item belongs in the '{expected[state]}' section",
+            )
         )
     return problems
 
@@ -345,11 +399,19 @@ def lint(bl: Backlog) -> list[Problem]:
                 if dep in first:
                     deps.append(dep)
                 else:
-                    problems.append(Problem(_field_line(item, "依存"), f"{item.id}: unknown dependency {dep}"))
+                    problems.append(
+                        Problem(
+                            _field_line(item, "依存"),
+                            f"{item.id}: unknown dependency {dep}",
+                        )
+                    )
         graph[item.id] = deps
     for cycle in _find_cycles(graph):
         problems.append(
-            Problem(_field_line(first[cycle[0]], "依存"), f"{cycle[0]}: dependency cycle {' -> '.join(cycle)}")
+            Problem(
+                _field_line(first[cycle[0]], "依存"),
+                f"{cycle[0]}: dependency cycle {' -> '.join(cycle)}",
+            )
         )
     return sorted(problems, key=lambda p: p.line)
 
@@ -400,7 +462,9 @@ def set_field(text: str, item_id: str, key: str, value: str) -> str:
     return _edit_field(text, item_id, key, value)
 
 
-def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: date) -> str:
+def archive_item(
+    text: str, item_id: str, outcome: str, pr: int | None, today: date
+) -> str:
     """Mark an active item done or dropped and move its block to the end of the archive section."""
     if outcome not in ("done", "dropped"):
         raise BacklogError("the outcome must be done or dropped")
@@ -413,7 +477,9 @@ def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: d
         if pr is not None:
             raise BacklogError("--pr is only for done items")
         if not (item.get("判断") or "").strip():
-            raise BacklogError(f"write the 判断 of {item_id} (why it is dropped) before archiving it")
+            raise BacklogError(
+                f"write the 判断 of {item_id} (why it is dropped) before archiving it"
+            )
 
     text = _edit_field(text, item_id, "状態", outcome)
     if outcome == "done":
@@ -431,8 +497,13 @@ def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: d
     try:
         head = lines.index(f"## {SECTION_ARCHIVE}")
     except ValueError:
-        raise BacklogError(f"the '## {SECTION_ARCHIVE}' section was not found") from None
-    end = next((n for n in range(head + 1, len(lines)) if lines[n].startswith("## ")), len(lines))
+        raise BacklogError(
+            f"the '## {SECTION_ARCHIVE}' section was not found"
+        ) from None
+    end = next(
+        (n for n in range(head + 1, len(lines)) if lines[n].startswith("## ")),
+        len(lines),
+    )
     for n in range(head + 1, end):
         if lines[n].strip() == PLACEHOLDER:
             del lines[n]
@@ -454,6 +525,23 @@ def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: d
 # ---------------------------------------------------------------------------
 
 
+def read_backlog_ref(ref: str, path: Path) -> tuple[str, Backlog]:
+    """Read the backlog as committed at a git ref (e.g. `origin/main`), ignoring the working tree."""
+    spec = f"{ref}:{path.as_posix()}"
+    try:
+        proc = subprocess.run(
+            ["git", "show", spec],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        raise BacklogError(f"cannot read {spec} with git: {detail.strip()}") from exc
+    return proc.stdout, parse(proc.stdout)
+
+
 def read_backlog(path: Path) -> tuple[str, Backlog]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -463,40 +551,63 @@ def read_backlog(path: Path) -> tuple[str, Backlog]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="backlog.py", description="Read and edit the project backlog.")
-    parser.add_argument("--file", default=DEFAULT_FILE, help=f"backlog file (default: {DEFAULT_FILE})")
+    parser = argparse.ArgumentParser(
+        prog="backlog.py", description="Read and edit the project backlog."
+    )
+    parser.add_argument(
+        "--file", default=DEFAULT_FILE, help=f"backlog file (default: {DEFAULT_FILE})"
+    )
+    parser.add_argument(
+        "--ref",
+        help="read the backlog from this git ref (e.g. origin/main) instead of the working tree; read-only commands only",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("next-id", help="print the next free item id")
 
     p_list = sub.add_parser("list", help="list items by state, priority and id")
     group = p_list.add_mutually_exclusive_group()
-    group.add_argument("--all", action="store_true", help="include done and dropped items")
+    group.add_argument(
+        "--all", action="store_true", help="include done and dropped items"
+    )
     group.add_argument("--status", help="comma-separated states to show")
-    p_list.add_argument("--priority", help="show only this priority or higher (P1 to P3); items without one are hidden")
+    p_list.add_argument(
+        "--priority",
+        help="show only this priority or higher (P1 to P3); items without one are hidden",
+    )
     p_list.add_argument(
         "--not-started",
         action="store_true",
         help="hide items that have a backlog/<ID>-* branch on origin (run `git fetch --prune origin` first)",
     )
-    p_list.add_argument("--limit", type=int, help="show only the first N items (after sorting, --priority and --not-started)")
+    p_list.add_argument(
+        "--limit",
+        type=int,
+        help="show only the first N items (after sorting, --priority and --not-started)",
+    )
 
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
 
-    sub.add_parser("lint", help="check the backlog format (exit 1 when there are problems)")
+    sub.add_parser(
+        "lint", help="check the backlog format (exit 1 when there are problems)"
+    )
 
     p_set = sub.add_parser("set", help="set one single-line field of an item")
     p_set.add_argument("id")
     p_set.add_argument("key", help=f"one of: {', '.join(SETTABLE_KEYS)}")
     p_set.add_argument("value")
 
-    p_archive = sub.add_parser("archive", help="move an item to the done / dropped section")
+    p_archive = sub.add_parser(
+        "archive", help="move an item to the done / dropped section"
+    )
     p_archive.add_argument("id")
     outcome = p_archive.add_mutually_exclusive_group(required=True)
     outcome.add_argument("--done", action="store_true")
     outcome.add_argument("--dropped", action="store_true")
-    p_archive.add_argument("--pr", type=int, help="pull request number (required with --done)")
+    p_archive.add_argument(
+        "--pr", type=int, help="pull request number (required with --done)"
+    )
     return parser
 
 
@@ -505,7 +616,9 @@ def write_checked(path: Path, old: str, new: str) -> None:
     known = {p.message for p in lint(parse(old))}
     added = [p.message for p in lint(parse(new)) if p.message not in known]
     if added:
-        raise BacklogError("refusing to write; the change would introduce: " + "; ".join(added))
+        raise BacklogError(
+            "refusing to write; the change would introduce: " + "; ".join(added)
+        )
     try:
         path.write_text(new, encoding="utf-8")
     except OSError as exc:
@@ -514,7 +627,14 @@ def write_checked(path: Path, old: str, new: str) -> None:
 
 def run(args: argparse.Namespace) -> int:
     path = Path(args.file)
-    text, bl = read_backlog(path)
+    if args.ref:
+        if args.command in ("set", "archive"):
+            raise BacklogError(
+                "--ref is read-only; it cannot be used with set or archive"
+            )
+        text, bl = read_backlog_ref(args.ref, path)
+    else:
+        text, bl = read_backlog(path)
     if args.command == "next-id":
         print(next_id(bl))
     elif args.command == "list":
@@ -539,7 +659,9 @@ def run(args: argparse.Namespace) -> int:
         write_checked(path, text, set_field(text, args.id, args.key, args.value))
     elif args.command == "archive":
         outcome = "done" if args.done else "dropped"
-        write_checked(path, text, archive_item(text, args.id, outcome, args.pr, date.today()))
+        write_checked(
+            path, text, archive_item(text, args.id, outcome, args.pr, date.today())
+        )
     return 0
 
 

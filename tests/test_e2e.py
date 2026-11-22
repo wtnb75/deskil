@@ -16,15 +16,27 @@ SKILL = PLUGIN / "skills" / "review-loop" / "SKILL.md"
 
 
 def run_flow(args, cwd):
-    env = {k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")}
+    env = {
+        k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")
+    }
     return subprocess.run(
-        [sys.executable, str(LINK), *args], cwd=cwd, env=env, capture_output=True, text=True
+        [sys.executable, str(LINK), *args],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
     )
 
 
 def hint_args(out: str, label: str | None) -> list[str]:
     """Extract the arguments of the printed `next` hint (everything after the script path)."""
-    pattern = r"uv run " + re.escape(str(LINK)) + r" (next \S+" + (rf" --result {label}" if label else "") + r")\s*(?:\n|:)"
+    pattern = (
+        r"uv run "
+        + re.escape(str(LINK))
+        + r" (next \S+"
+        + (rf" --result {label}" if label else "")
+        + r")\s*(?:\n|:)"
+    )
     m = re.search(pattern, out)
     assert m, f"no next hint for {label!r} in:\n{out}"
     return m.group(1).split()
@@ -64,7 +76,12 @@ def test_review_loop_end_to_end(tmp_path):
 
     # fail -> fix (1st) -> run_tests -> fail -> fix (2nd) -> run_tests.
     # Each command comes from the hint printed by the previous step.
-    steps = [("fail", "[fix]"), (None, "[run_tests]"), ("fail", "[fix]"), (None, "[run_tests]")]
+    steps = [
+        ("fail", "[fix]"),
+        (None, "[run_tests]"),
+        ("fail", "[fix]"),
+        (None, "[run_tests]"),
+    ]
     for label, expected_state in steps:
         res = run_flow(hint_args(out, label), tmp_path)
         assert res.returncode == 0, res.stderr

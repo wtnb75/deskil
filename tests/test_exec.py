@@ -67,7 +67,7 @@ def codes(flow, tmp_path, write_def, text):
 
 
 def test_lint_accepts_run_options(flow, tmp_path, write_def):
-    text = _def('["echo", "hi"]', "timeout = 5\ncwd = \"sub\"\noutput_lines = 10")
+    text = _def('["echo", "hi"]', 'timeout = 5\ncwd = "sub"\noutput_lines = 10')
     assert codes(flow, tmp_path, write_def, text) == set()
 
 
@@ -76,22 +76,35 @@ def test_lint_rejects_bad_run(flow, tmp_path, write_def, value):
     assert "type" in codes(flow, tmp_path, write_def, _def(value))
 
 
-@pytest.mark.parametrize("extra", ["timeout = 0", "timeout = true", 'timeout = "5"',
-                                   "output_lines = 0", "output_lines = true", "cwd = 3"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "timeout = 0",
+        "timeout = true",
+        'timeout = "5"',
+        "output_lines = 0",
+        "output_lines = true",
+        "cwd = 3",
+    ],
+)
 def test_lint_rejects_bad_option_values(flow, tmp_path, write_def, extra):
     assert "type" in codes(flow, tmp_path, write_def, _def('["true"]', extra))
 
 
 @pytest.mark.parametrize("key", ["timeout = 5", 'cwd = "x"', "output_lines = 5"])
 def test_lint_options_need_run(flow, tmp_path, write_def, key):
-    text = f'schema = 1\nstart = "a"\n[states.a]\nprompt = "p"\n{key}\ngoto = "e"\n' \
-           '[states.e]\nprompt = "d"\nend = true\n'
+    text = (
+        f'schema = 1\nstart = "a"\n[states.a]\nprompt = "p"\n{key}\ngoto = "e"\n'
+        '[states.e]\nprompt = "d"\nend = true\n'
+    )
     assert "option-without-run" in codes(flow, tmp_path, write_def, text)
 
 
 def test_lint_cwd_must_stay_inside_definition_dir(flow, tmp_path, write_def):
     for bad in ('"/abs"', '"../up"'):
-        assert "cwd-outside" in codes(flow, tmp_path, write_def, _def('["true"]', f"cwd = {bad}"))
+        assert "cwd-outside" in codes(
+            flow, tmp_path, write_def, _def('["true"]', f"cwd = {bad}")
+        )
 
 
 def test_lint_end_state_cannot_run(flow, tmp_path, write_def):
@@ -195,14 +208,28 @@ def test_nonzero_exit_code_is_reported(flow, repo, state_dir):
 
 
 def test_stdout_and_stderr_are_separate(flow, repo, state_dir):
-    out = run_one(flow, repo, state_dir,
-                  "import sys; print('o'+'ut1'); print('e'+'rr1', file=sys.stderr)")
-    assert out.index("stdout (") < out.index("\nout1") < out.index("stderr (") < out.index("\nerr1")
+    out = run_one(
+        flow,
+        repo,
+        state_dir,
+        "import sys; print('o'+'ut1'); print('e'+'rr1', file=sys.stderr)",
+    )
+    assert (
+        out.index("stdout (")
+        < out.index("\nout1")
+        < out.index("stderr (")
+        < out.index("\nerr1")
+    )
 
 
 def test_output_is_truncated_from_the_head(flow, repo, state_dir):
-    out = run_one(flow, repo, state_dir, "print('\\n'.join(f'line{i}' for i in range(1, 251)))",
-                  "output_lines = 100")
+    out = run_one(
+        flow,
+        repo,
+        state_dir,
+        "print('\\n'.join(f'line{i}' for i in range(1, 251)))",
+        "output_lines = 100",
+    )
     assert "line250" in out
     assert "line151" in out
     assert "line150\n" not in out
@@ -210,13 +237,20 @@ def test_output_is_truncated_from_the_head(flow, repo, state_dir):
 
 
 def test_default_limit_is_100_lines(flow, repo, state_dir):
-    out = run_one(flow, repo, state_dir, "print('\\n'.join(f'line{i}' for i in range(1, 121)))")
+    out = run_one(
+        flow, repo, state_dir, "print('\\n'.join(f'line{i}' for i in range(1, 121)))"
+    )
     assert "20 lines truncated" in out
 
 
 def test_full_output_is_saved_in_run_directory(flow, repo, state_dir):
-    out = run_one(flow, repo, state_dir, "print('\\n'.join(f'line{i}' for i in range(1, 251)))",
-                  "output_lines = 10")
+    out = run_one(
+        flow,
+        repo,
+        state_dir,
+        "print('\\n'.join(f'line{i}' for i in range(1, 251)))",
+        "output_lines = 10",
+    )
     saved = list(state_dir.glob("*/*.stdout"))
     assert len(saved) == 1
     assert saved[0].read_text().splitlines()[0] == "line1"
@@ -234,9 +268,12 @@ def test_result_is_recorded_in_run_file(flow, repo, state_dir):
 
 
 def test_timeout_kills_process_group_and_reports(flow, repo, state_dir):
-    path = commit(repo, 'schema = 1\nstart = "a"\n[states.a]\nprompt = "p"\n'
-                  'run = ["sh", "-c", "echo before; sleep 30; true"]\ntimeout = 1\n'
-                  'goto = "e"\n[states.e]\nprompt = "d"\nend = true\n')
+    path = commit(
+        repo,
+        'schema = 1\nstart = "a"\n[states.a]\nprompt = "p"\n'
+        'run = ["sh", "-c", "echo before; sleep 30; true"]\ntimeout = 1\n'
+        'goto = "e"\n[states.e]\nprompt = "d"\nend = true\n',
+    )
     t0 = time.monotonic()
     out = flow.start_run(path, state_dir)
     assert time.monotonic() - t0 < 10
@@ -259,7 +296,9 @@ def test_missing_cwd_is_reported_not_raised(flow, repo, state_dir):
 def test_cwd_is_relative_to_definition_dir(flow, repo, state_dir):
     (repo / "sub").mkdir()
     (repo / "sub" / "f.txt").write_text("x")
-    path = commit(repo, _def(py("import os; print(sorted(os.listdir('.')))"), 'cwd = "sub"'))
+    path = commit(
+        repo, _def(py("import os; print(sorted(os.listdir('.')))"), 'cwd = "sub"')
+    )
     out = flow.start_run(path, state_dir)
     assert "f.txt" in out
 
@@ -274,8 +313,22 @@ def test_default_cwd_is_where_start_ran(flow, repo, state_dir, tmp_path, monkeyp
 
 
 def test_command_is_not_run_through_a_shell(flow, repo, state_dir):
-    path = commit(repo, _def(json.dumps([sys.executable, "-c", "import sys; print(sys.argv[1:])",
-                                         "a b", "$HOME", ";", "echo"])))
+    path = commit(
+        repo,
+        _def(
+            json.dumps(
+                [
+                    sys.executable,
+                    "-c",
+                    "import sys; print(sys.argv[1:])",
+                    "a b",
+                    "$HOME",
+                    ";",
+                    "echo",
+                ]
+            )
+        ),
+    )
     out = flow.start_run(path, state_dir)
     assert "['a b', '$HOME', ';', 'echo']" in out
 
@@ -311,10 +364,19 @@ end = true
 
 def test_old_run_file_without_new_fields_still_loads(flow, state_dir):
     state_dir.mkdir()
-    (state_dir / "old.json").write_text(json.dumps({
-        "run_id": "old", "definition": "/x", "definition_hash": "h", "current": "a",
-        "visits": {"a": 1}, "history": [], "status": "running",
-    }))
+    (state_dir / "old.json").write_text(
+        json.dumps(
+            {
+                "run_id": "old",
+                "definition": "/x",
+                "definition_hash": "h",
+                "current": "a",
+                "visits": {"a": 1},
+                "history": [],
+                "status": "running",
+            }
+        )
+    )
     run = flow.load_run(state_dir, "old")
     assert run.commands == []
 
@@ -380,7 +442,9 @@ def test_not_executed_shows_expanded_argv(flow, repo, state_dir):
     assert "${DEF_DIR}" not in out
 
 
-def test_command_edited_in_worktree_is_not_executed_even_with_def_dir(flow, repo, state_dir):
+def test_command_edited_in_worktree_is_not_executed_even_with_def_dir(
+    flow, repo, state_dir
+):
     path = commit(repo, argv_def("${DEF_DIR}/a"))
     path.write_text(argv_def("${DEF_DIR}/b"), encoding="utf-8")
     out = flow.start_run(path, state_dir)

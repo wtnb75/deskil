@@ -12,9 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DEV = ROOT / "plugins" / "deskil-dev"
 SKILLS = ["add", "prio", "decide", "impl"]
 PRESENT = [s for s in SKILLS if (DEV / "skills" / s).is_dir()]
-ALLOWED_TOOLS = (
-    "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
-)
+ALLOWED_TOOLS = "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
 
 
 def frontmatter(path: Path) -> dict[str, str]:
@@ -25,7 +23,9 @@ def frontmatter(path: Path) -> dict[str, str]:
 
 
 def run_flow(*args, cwd):
-    env = {k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")}
+    env = {
+        k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")
+    }
     return subprocess.run(
         [sys.executable, str(DEV / "scripts" / "flow.py"), *map(str, args)],
         cwd=cwd,
@@ -36,28 +36,42 @@ def run_flow(*args, cwd):
 
 
 def dry_run(skill, results, cwd):
-    res = run_flow("dry-run", DEV / "skills" / skill / "flow.toml", "--results", ",".join(results), cwd=cwd)
+    res = run_flow(
+        "dry-run",
+        DEV / "skills" / skill / "flow.toml",
+        "--results",
+        ",".join(results),
+        cwd=cwd,
+    )
     assert res.returncode == 0, res.stdout + res.stderr
     return res.stdout
 
 
 def visited(out: str) -> list[str]:
     """State ids in the order a dry-run printed them."""
-    return [line[1 : line.index("]")] for line in out.splitlines() if line.startswith("[") and "(run: dry-run)" in line]
+    return [
+        line[1 : line.index("]")]
+        for line in out.splitlines()
+        if line.startswith("[") and "(run: dry-run)" in line
+    ]
 
 
 # --- packaging -------------------------------------------------------------
 
 
 def test_marketplace_lists_deskil_dev():
-    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    market = json.loads(
+        (ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8")
+    )
     entry = next(p for p in market["plugins"] if p["name"] == "deskil-dev")
     assert entry["source"] == "./plugins/deskil-dev"
     assert entry["description"]
 
 
 def test_plugin_json_names_deskil_dev():
-    data = json.loads((DEV / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    data = json.loads(
+        (DEV / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+    )
     assert data["name"] == "deskil-dev" and data["version"] and data["description"]
 
 
@@ -75,7 +89,12 @@ def test_scripts_are_relative_symlinks_into_shared(script, target):
 
 
 def test_add_happy_and_duplicate_paths(tmp_path):
-    assert visited(dry_run("add", ["new", "ok"], tmp_path)) == ["check_dup", "write", "lint", "report"]
+    assert visited(dry_run("add", ["new", "ok"], tmp_path)) == [
+        "check_dup",
+        "write",
+        "lint",
+        "report",
+    ]
     assert visited(dry_run("add", ["duplicate", "ok"], tmp_path)) == [
         "check_dup",
         "update_existing",
@@ -116,7 +135,11 @@ def test_decide_paths(tmp_path):
         "lint",
         "report",
     ]
-    assert visited(dry_run("decide", ["found", "dropped", "ok"], tmp_path)) == head + ["drop", "lint", "report"]
+    assert visited(dry_run("decide", ["found", "dropped", "ok"], tmp_path)) == head + [
+        "drop",
+        "lint",
+        "report",
+    ]
     assert visited(dry_run("decide", ["found", "defer", "ok"], tmp_path)) == head + [
         "note_open",
         "lint",
@@ -153,25 +176,42 @@ HEAD = ["pick", "prepare", "plan", "implement", "verify", "classify"]
 
 
 def test_implement_review_without_security_or_fixes(tmp_path):
-    out = dry_run("impl", ["found", "pass", "review", "no_security", "not_fixed"], tmp_path)
+    out = dry_run(
+        "impl", ["found", "pass", "review", "no_security", "not_fixed"], tmp_path
+    )
     assert visited(out) == [*HEAD, "review", "triage", "record_rejected", *TAIL]
 
 
 def test_implement_review_with_security(tmp_path):
-    out = dry_run("impl", ["found", "pass", "review", "security", "not_fixed"], tmp_path)
-    assert visited(out) == [*HEAD, "review", "security_review", "triage", "record_rejected", *TAIL]
+    out = dry_run(
+        "impl", ["found", "pass", "review", "security", "not_fixed"], tmp_path
+    )
+    assert visited(out) == [
+        *HEAD,
+        "review",
+        "security_review",
+        "triage",
+        "record_rejected",
+        *TAIL,
+    ]
 
 
 def test_implement_review_with_fixes_reviews_once(tmp_path):
-    out = dry_run("impl", ["found", "pass", "review", "no_security", "fixed", "pass"], tmp_path)
+    out = dry_run(
+        "impl", ["found", "pass", "review", "no_security", "fixed", "pass"], tmp_path
+    )
     seen = visited(out)
     assert seen.count("review") == 1 and seen.count("triage") == 1
-    assert seen[-(len(TAIL) + 1):] == ["record_rejected", *TAIL]
+    assert seen[-(len(TAIL) + 1) :] == ["record_rejected", *TAIL]
     assert seen[: len(HEAD) + 3] == [*HEAD, "review", "triage", "verify"]
 
 
 def test_implement_review_failure_after_fix_uses_the_fix_limit(tmp_path):
-    out = dry_run("impl", ["found", "pass", "review", "no_security", "fixed", "fail", "fail", "fail"], tmp_path)
+    out = dry_run(
+        "impl",
+        ["found", "pass", "review", "no_security", "fixed", "fail", "fail", "fail"],
+        tmp_path,
+    )
     assert visited(out)[-1] == "report_fail"
     assert "open_pr" not in visited(out)
 
@@ -186,7 +226,9 @@ def test_classify_sees_committed_and_uncommitted_changes():
     assert "untracked" in prompt  # new files are not in the diff
     assert "worktree" in prompt  # the command may have run in another tree
     assert "empty" in prompt  # an empty result must not mean "skip"
-    assert "reached again" not in prompt  # the second arrival is redirected and never shown
+    assert (
+        "reached again" not in prompt
+    )  # the second arrival is redirected and never shown
 
 
 def test_security_review_cannot_stall_the_flow():
@@ -194,7 +236,11 @@ def test_security_review_cannot_stall_the_flow():
     assert "choices" not in state and state["goto"] == "triage"
     prompt = state["prompt"]
     assert "security-review" in prompt
-    assert "not the end" in prompt and "do not ask" in prompt.lower() and "`next`" in prompt
+    assert (
+        "not the end" in prompt
+        and "do not ask" in prompt.lower()
+        and "`next`" in prompt
+    )
 
 
 def test_review_prompt_names_the_reviews():
@@ -222,7 +268,9 @@ def test_security_review_handles_an_empty_report():
 def test_record_rejected_commits_the_file_in_the_projects_language():
     prompt = flow_states("impl")["record_rejected"]["prompt"]
     assert "docs/REVIEW-REJECTED.md" in prompt and "nothing" in prompt.lower()
-    assert "Japanese" not in prompt  # the language comes from the project's rules for docs
+    assert (
+        "Japanese" not in prompt
+    )  # the language comes from the project's rules for docs
     assert "language" in prompt
 
 
@@ -235,7 +283,9 @@ def test_implement_prepare_branches_from_a_fetched_origin(tmp_path):
     step = prepare_step(tmp_path)
     assert "git fetch origin" in step
     assert "git symbolic-ref --short refs/remotes/origin/HEAD" in step
-    assert "git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track" in step
+    assert (
+        "git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track" in step
+    )
     assert "clean" in step  # a dirty working tree still stops the flow
 
 
@@ -273,7 +323,10 @@ def test_skill_runs_the_flow(skill):
     assert f"${{CLAUDE_PLUGIN_ROOT}}/skills/{skill}/flow.toml" in text
     assert "flow.py start" in text and "Flow complete." in text
     # The engine does not expand paths in prompts, so SKILL.md tells the LLM what `backlog.py` means.
-    assert "`backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`" in text
+    assert (
+        "`backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`"
+        in text
+    )
 
 
 @pytest.mark.parametrize("skill", PRESENT)
@@ -297,7 +350,9 @@ RUN_STATES = [
 def flow_states(skill: str) -> dict:
     import tomllib
 
-    return tomllib.loads((DEV / "skills" / skill / "flow.toml").read_text(encoding="utf-8"))["states"]
+    return tomllib.loads(
+        (DEV / "skills" / skill / "flow.toml").read_text(encoding="utf-8")
+    )["states"]
 
 
 @pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
@@ -305,20 +360,28 @@ def test_fixed_commands_are_run_by_the_flow(skill, state, args):
     assert flow_states(skill)[state]["run"] == [*BACKLOG_PY, *args]
 
 
-@pytest.mark.parametrize(("skill", "state"), [("decide", "pick"), ("impl", "pick"), ("impl", "prepare"), ("impl", "verify")])
+@pytest.mark.parametrize(
+    ("skill", "state"),
+    [("decide", "pick"), ("impl", "pick"), ("impl", "prepare"), ("impl", "verify")],
+)
 def test_commands_not_in_scope_are_not_run(skill, state):
     assert "run" not in flow_states(skill)[state]
 
 
 @pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
 def test_run_target_exists(skill, state, args):
-    target = flow_states(skill)[state]["run"][2].replace("${DEF_DIR}", str(DEV / "skills" / skill))
+    target = flow_states(skill)[state]["run"][2].replace(
+        "${DEF_DIR}", str(DEV / "skills" / skill)
+    )
     assert Path(target).resolve().is_file()
 
 
 @pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
 def test_run_commands_work_in_the_project(skill, state, args):
-    argv = [a.replace("${DEF_DIR}", str(DEV / "skills" / skill)) for a in flow_states(skill)[state]["run"]]
+    argv = [
+        a.replace("${DEF_DIR}", str(DEV / "skills" / skill))
+        for a in flow_states(skill)[state]["run"]
+    ]
     res = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
     assert res.returncode == 0, res.stdout + res.stderr
     if args == ["next-id"]:

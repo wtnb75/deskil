@@ -9,10 +9,13 @@ always = [
 ]
 
 [states.pick]
-prompt = """If the user named an item, use it. Otherwise run `git fetch --prune origin`, then `backlog.py list --status ready --not-started`
+prompt = """If the user named an item, use it. Otherwise run `git fetch --prune origin`, then find the default branch with
+`git symbolic-ref --short refs/remotes/origin/HEAD` (it prints `origin/<default branch>`; if that fails, stop and ask the user).
+Read the backlog from that remote branch, not from the working tree (the local default branch may be behind after a merge):
+`backlog.py --ref origin/<default branch> list --status ready --not-started`
 (it hides items that already have a `backlog/<ID>-*` branch on origin, i.e. work in progress) and take the first item
 that is not marked blocked (the list is ordered by priority).
-Run `backlog.py show <ID>` and read its 判断: it is the approach to implement."""
+Run `backlog.py --ref origin/<default branch> show <ID>` and read its 判断: it is the approach to implement."""
 
 [[states.pick.choices]]
 label = "found"
