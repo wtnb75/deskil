@@ -63,14 +63,6 @@
 - 背景: `done` / `dropped` の項目が `BACKLOG.md` に積み上がると、ファイルが長くなり、読むトークンが増える。初版は 1 ファイルで始めた（`backlog.py list` が表示を絞るので、当面は困らない）。
 - 概要: `done` / `dropped` の項目を `docs/BACKLOG-DONE.md` のような別ファイルへ移す。`backlog.py` が 2 つのファイルをまたいで ID の採番・依存の確認を行う必要がある。移すタイミング（`archive` の時点か、まとめて）と、`list --all` の扱いは未決。
 
-### B-023 CI の整備
-- 状態: ready
-- 優先度: P2
-- 追加: 2026-11-22
-- 背景: 初版は手元での実行（`task` や `pytest`）だけで確認しており、プッシュ・PR 時に自動で検査する仕組みがない。
-- 概要: GitHub Actions などで、PR ごとにテスト（`pytest`）、lint（`ruff`）、flow 定義の lint を自動実行する。対象の OS（Windows は B-004 に依存）、Python のバージョン、CI の基盤（GitHub Actions か他か）、必須チェックにするかは未決。
-- 判断: GitHub Actions で、PR ごとに `task test`、`task lint`、flow 定義の lint を実行する。OS は ubuntu のみ、Python は最新の 1 本とする。Windows は B-004 に依存するので外す。必須チェックにするかは、動かして安定してから決める（今回は設定しない）。（2026-11-22）
-
 ### B-025 impl: PR 本文を日本語にする
 - 状態: ready
 - 優先度: P2
@@ -415,4 +407,13 @@
 - 背景: 新しい定義を書くたびに、構造を一から書いている。書式のゆれも出る。
 - 概要: `flow new` で定義の雛形を作り、`flow fmt` でキーの順序や書式をそろえる。`flow-author` スキルから呼べるようにして、手戻りを減らす。TOML のコメントを保ったまま整形できるかを先に確認する必要がある。
 - 判断: `flow new` で固定の雛形を出し、`flow fmt` でキーの順序と書式をそろえる。`fmt` は標準ライブラリだけの自前の整形（行単位で、コメントを含む行はそのまま保つ）とし、`tomlkit` は入れない。`new` の出力は `fmt` の出力にそろえ、一緒に作る。書き終えたら `flow fmt` を実行する手順を `flow-author` の SKILL.md に足す。（2026-11-22）
+- 完了: 2026-11-23
+
+### B-023 CI の整備
+- 状態: done
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: 初版は手元での実行（`task` や `pytest`）だけで確認しており、プッシュ・PR 時に自動で検査する仕組みがない。
+- 概要: GitHub Actions などで、PR ごとにテスト（`pytest`）、lint（`ruff`）、flow 定義の lint を自動実行する。対象の OS（Windows は B-004 に依存）、Python のバージョン、CI の基盤（GitHub Actions か他か）、必須チェックにするかは未決。
+- 判断: GitHub Actions で、PR ごとに `task test`、`task lint`、flow 定義の lint を実行する。OS は ubuntu のみ、Python は最新の 1 本とする。Windows は B-004 に依存するので外す。必須チェックにするかは、動かして安定してから決める（今回は設定しない）。（2026-11-22）
 - 完了: 2026-11-23
