@@ -435,3 +435,37 @@ def load_definition(path: Path) -> Definition:
         common=dict(notes.get("common", {})),
         states=states,
     )
+
+
+# ---------------------------------------------------------------------------
+# rendering a step for the LLM
+# ---------------------------------------------------------------------------
+
+
+def render_step(defn: Definition, state_id: str, run_id: str, cmd: str = "flow") -> str:
+    """Render what the LLM sees for one state. Reads only the files that state needs."""
+    st = defn.states[state_id]
+    sections = [f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"]
+
+    notes: list[str] = []
+    for item in [*defn.always, *(defn.common[n] for n in st.notes)]:
+        text = read_text_value(item, defn.base_dir)
+        if text not in notes:
+            notes.append(text)
+    if notes:
+        sections.append("Notes:\n" + "\n".join(f"- {n}" for n in notes))
+
+    if st.end:
+        sections.append("Flow complete.")
+    elif st.choices:
+        width = max(len(c.label) for c in st.choices)
+        lines = [
+            f"  {cmd} next {run_id} --result {c.label.ljust(width)} : "
+            f"{read_text_value(c.when, defn.base_dir)}"
+            for c in st.choices
+        ]
+        header = "After finishing the work, report the result with one of the following:"
+        sections.append("\n".join([header, *lines]))
+    else:
+        sections.append(f"After finishing the work, run:\n  {cmd} next {run_id}")
+    return "\n\n".join(sections) + "\n"
