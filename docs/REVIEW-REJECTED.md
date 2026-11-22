@@ -2,6 +2,16 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-020
+
+- code-review・altitude / `stats_json`: 履歴の再生ではなく、`next` が `on_exceed` の回数を記録に残すべき。却下: B-020 の判断が「今の記録から数えられるので、記録に足す情報はない」と決めている。定義が変わった場合は、ハッシュの不一致でエラーにして対処した。
+- code-review / `stats_json` と `next_step`・`dry_run` の visits の更新の重複。却下: 数行の加算で、共通化するには `dry_run` など関係のない関数を触る範囲外の改修になる。
+- code-review・simplify・altitude / `--json` が `required=True` で、情報を持たない。却下: B-020 の判断が `flow stats <run-id> --json` と決めている。テキスト出力を足すときに外せる形にしてある。
+- simplify（simplification）/ `step_target` の薄いラッパー。却下: 既存の呼び出し側（`dry_run`、シナリオ）を変えずに済む。
+- simplify（simplification・reuse）/ テストの共通 fixture・パラメータ化・`new_run` の共通化、`next_step` と共通の定義の読み込み関数。却下: 既存のテストも、ファイルごとにヘルパーを持つ作りで、好みの範囲。
+- simplify（efficiency）: 指摘なし。
+- security-review: 指摘なし。
+
 ## B-017
 
 - code-review / `shared/flow/flow.py` `next_step`: 定義の読み込みを先にしたので、定義が変更されかつ壊れていると、`definition changed` でなく lint エラーが出る。却下: エラーの経路だけの違いで、どちらも失敗として止まる。ハッシュを先に計算するには include の解析が要り、読み込みと二重になる。
