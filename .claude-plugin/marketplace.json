@@ -4,9 +4,14 @@
   "metadata": { "description": "deskil plugin marketplace" },
   "plugins": [
     {
-      "name": "core",
-      "source": "./plugins/core",
+      "name": "deskil",
+      "source": "./plugins/deskil",
       "description": "Authoring and review tools for flow definitions (lint, dry-run, rename)"
+    },
+    {
+      "name": "deskil-dev",
+      "source": "./plugins/deskil-dev",
+      "description": "Backlog workflow skills for developing this repository (add, prioritize, decide, implement)"
     },
     {
       "name": "feature-a",

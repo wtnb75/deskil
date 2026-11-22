@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-CORE = ROOT / "plugins" / "core"
+CORE = ROOT / "plugins" / "deskil"
 SKILLS = ["flow-author", "flow-review"]
 
 
@@ -16,15 +16,15 @@ def frontmatter(path: Path) -> dict[str, str]:
     return dict(line.split(": ", 1) for line in lines[1:end])
 
 
-def test_marketplace_lists_core():
+def test_marketplace_lists_deskil():
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-    entry = next(p for p in market["plugins"] if p["name"] == "core")
-    assert entry["source"] == "./plugins/core"
+    entry = next(p for p in market["plugins"] if p["name"] == "deskil")
+    assert entry["source"] == "./plugins/deskil"
 
 
-def test_plugin_json_names_core():
+def test_plugin_json_names_deskil():
     data = json.loads((CORE / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert data["name"] == "core" and data["version"]
+    assert data["name"] == "deskil" and data["version"]
 
 
 def test_engine_is_bundled_by_relative_symlink():

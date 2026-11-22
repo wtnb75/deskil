@@ -5,8 +5,9 @@ Claude Code plugin marketplace.
 ## Install
 
 ```
-/plugin marketplace add <github-user>/<repo>
-/plugin install feature-a@deskil
+/plugin marketplace add wtnb75/deskil
+/plugin install deskil@deskil
+/plugin install deskil-dev@deskil
 ```
 
 ## Layout
@@ -14,6 +15,8 @@ Claude Code plugin marketplace.
 ```
 .claude-plugin/marketplace.json   marketplace catalog
 shared/scripts/                   scripts shared by plugins (single source of truth)
+shared/flow/flow.py               the flow engine
+shared/backlog/backlog.py         the backlog tool
 plugins/<name>/
   .claude-plugin/plugin.json
   skills/                         skills
@@ -24,7 +27,8 @@ plugins/<name>/
 
 | Plugin | What it is |
 |---|---|
-| `core` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
+| `deskil` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
+| `deskil-dev` | Skills for the backlog workflow, each written as a flow: `backlog-add`, `backlog-prioritize`, `backlog-decide`, `backlog-implement`. |
 | `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
 | `feature-b` | Sample plugin that uses the shared script. |
 
@@ -48,6 +52,31 @@ Run state is stored in `.flow/runs/` of the working directory
 (override with `--state-dir` or `FLOW_STATE_DIR`). See
 `plugins/feature-a/skills/review-loop/` for a complete example, and
 `docs/superpowers/specs/2026-11-22-flow-engine-design.md` for the design (in Japanese).
+
+## Backlog workflow
+
+`docs/BACKLOG.md` holds the ideas that are not done yet (items `B-NNN` with a state, a priority `P1`-`P3`,
+and optional dependencies). The `deskil-dev` skills drive it:
+
+```
+backlog-add          write a new todo item
+backlog-prioritize   propose priorities, apply them after you approve
+backlog-decide       compare approaches, record the decision (todo -> ready, or dropped)
+backlog-implement    implement a ready item on a branch, open a pull request, mark it done
+```
+
+The skills call `shared/backlog/backlog.py` (Python 3.11+, standard library only) so that ids, formats and moves are exact:
+
+```
+uv run backlog.py list [--all | --status todo,ready]   # ordered by state, priority, id; marks blocked items
+uv run backlog.py show <ID>
+uv run backlog.py next-id
+uv run backlog.py lint                                 # exit 1 when the format is broken
+uv run backlog.py set <ID> <key> <value>               # one single-line field (状態 / 優先度 / 依存 / 完了 / PR)
+uv run backlog.py archive <ID> --done --pr <N>         # or --dropped; moves the item to "done / dropped"
+```
+
+The file defaults to `docs/BACKLOG.md` (override with `--file`). Writes are refused when they would add a lint problem.
 
 ## Development
 

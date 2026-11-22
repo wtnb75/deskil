@@ -1,0 +1,6 @@
+{
+  "name": "deskil-dev",
+  "version": "0.1.0",
+  "description": "Backlog workflow skills (add, prioritize, decide, implement) written as flows",
+  "author": { "name": "Watanabe Takashi" }
+}

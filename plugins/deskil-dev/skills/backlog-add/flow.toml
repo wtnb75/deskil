@@ -1,0 +1,69 @@
+schema = 1
+start = "check_dup"
+
+[notes]
+always = [
+  "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format: follow it.",
+  "Never guess an item id: get it from `backlog.py next-id`. Keep every field value on one line.",
+  "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",
+]
+
+[states.check_dup]
+prompt = """Run `backlog.py list --all` and compare the idea the user wants to add with the existing items.
+If a similar item exists, read it with `backlog.py show <ID>`."""
+
+[[states.check_dup.choices]]
+label = "new"
+when = "No existing item covers the idea"
+goto = "write"
+
+[[states.check_dup.choices]]
+label = "duplicate"
+when = "An existing item already covers the idea (it only needs more information)"
+goto = "update_existing"
+
+[states.update_existing]
+prompt = """Add the new information to the existing item with Edit (for example, extend 背景 or 概要).
+Do not change its 状態 or 優先度 here: use backlog-prioritize or backlog-decide for that."""
+goto = "lint"
+
+[states.write]
+prompt = """Run `backlog.py next-id`.
+Append a new item at the end of the `## todo / ready` section (before `## done / dropped`) with Edit,
+in the format shown at the top of docs/BACKLOG.md:
+- 状態: todo
+- 優先度: P2
+- 追加: today's date (YYYY-MM-DD)
+- 背景: why the idea is deferred (why it is not done now)
+- 概要: what to do, and what is still undecided
+Add 依存 only when the item cannot start before another item is done."""
+goto = "lint"
+
+[states.lint]
+prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint printed nothing"
+goto = "report"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint printed one or more problems"
+goto = "fix"
+
+[states.fix]
+prompt = """Read the problems that `backlog.py lint` printed (file:line: message) and fix their causes with Edit.
+Do not change anything else."""
+goto = "lint"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.report]
+prompt = "Tell the user the id and title of the item that was added or updated, and that the backlog passes lint."
+end = true
+
+[states.report_fail]
+prompt = """Tell the user that the backlog still fails lint after two fix attempts, and list the remaining problems.
+Do not claim that the item was added cleanly."""
+end = true
