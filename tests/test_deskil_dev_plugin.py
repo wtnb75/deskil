@@ -162,16 +162,16 @@ def test_implement_happy_path_order(tmp_path):
         "implement",
         "verify",
         "classify",
+        "finish_backlog",
         "commit",
         "open_pr",
-        "finish_backlog",
         "back_to_default",
         "report",
     ]
     assert out.endswith("Flow complete.\n")
 
 
-TAIL = ["commit", "open_pr", "finish_backlog", "back_to_default", "report"]
+TAIL = ["finish_backlog", "commit", "open_pr", "back_to_default", "report"]
 HEAD = ["pick", "prepare", "plan", "implement", "verify", "classify"]
 
 
@@ -265,7 +265,18 @@ def test_security_review_handles_an_empty_report():
     assert "no findings" in flow_states("impl")["security_review"]["prompt"].lower()
 
 
-def test_record_rejected_commits_the_file_in_the_projects_language():
+def test_the_work_is_committed_once_before_the_pr():
+    states = flow_states("impl")
+    assert states["record_rejected"]["goto"] == "finish_backlog"
+    assert states["finish_backlog"]["goto"] == "commit"
+    assert states["commit"]["goto"] == "open_pr"
+    assert "--pr" not in states["finish_backlog"]["prompt"]
+    assert "do not commit" in states["record_rejected"]["prompt"].lower()
+    assert "do not commit" in states["finish_backlog"]["prompt"].lower()
+    assert "one commit" in states["commit"]["prompt"]
+
+
+def test_record_rejected_writes_the_file_in_the_projects_language():
     prompt = flow_states("impl")["record_rejected"]["prompt"]
     assert "docs/REVIEW-REJECTED.md" in prompt and "nothing" in prompt.lower()
     assert (

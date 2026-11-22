@@ -408,7 +408,6 @@ LINT_CASES = [
         "B-004: missing 完了",
         "### B-004 Finished",
     ),
-    ("done-without-pr", "- PR: #1\n", "", "B-004: missing PR", "### B-004 Finished"),
     (
         "dropped-with-pr",
         "- 状態: done\n- 優先度: P2\n- 追加: 2026-10-01\n- 背景: bg\n- 概要: sum\n- 完了: 2026-10-02\n- PR: #1\n",
@@ -584,6 +583,14 @@ def test_archive_into_empty_section_removes_placeholder(backlog):
     assert backlog.lint(backlog.parse(out)) == []
 
 
+def test_archive_done_without_pr_writes_no_pr(backlog):
+    out = backlog.archive_item(SAMPLE, "B-001", "done", None, TODAY)
+    moved = backlog.find_item(backlog.parse(out), "B-001")
+    assert moved.get("状態") == "done" and moved.get("PR") is None
+    assert moved.get("完了") == TODAY.isoformat()
+    assert backlog.lint(backlog.parse(out)) == []
+
+
 def test_archive_inserts_before_the_next_section(backlog):
     text = SAMPLE + "\n## Appendix\n\nnotes\n"
     out = backlog.archive_item(text, "B-001", "done", 7, TODAY)
@@ -594,7 +601,6 @@ def test_archive_inserts_before_the_next_section(backlog):
 @pytest.mark.parametrize(
     "item,outcome,pr,message",
     [
-        ("B-001", "done", None, "--pr"),
         ("B-001", "dropped", 7, "--pr"),
         ("B-004", "done", 7, "already"),
         ("B-099", "done", 7, "B-099"),
@@ -627,7 +633,7 @@ def test_cli_set_does_not_write_when_it_would_introduce_a_lint_problem(
 
 
 def test_cli_set_ignores_problems_that_were_already_there(backlog, tmp_path):
-    broken = SAMPLE.replace("- PR: #1\n", "", 1)
+    broken = SAMPLE.replace("- 完了: 2026-10-02\n", "", 1)
     path = write(tmp_path, broken)
     assert backlog.main(["--file", str(path), "set", "B-003", "優先度", "P1"]) == 0
 

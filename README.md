@@ -82,7 +82,7 @@ uv run backlog.py show <ID>
 uv run backlog.py next-id
 uv run backlog.py lint                                 # exit 1 when the format is broken
 uv run backlog.py set <ID> <key> <value>               # one single-line field (状態 / 優先度 / 依存 / 完了 / PR)
-uv run backlog.py archive <ID> --done --pr <N>         # or --dropped; moves the item to "done / dropped"
+uv run backlog.py archive <ID> --done [--pr <N>]       # or --dropped; moves the item to "done / dropped"
 ```
 
 The file defaults to `docs/BACKLOG.md` (override with `--file`). Writes are refused when they would add a lint problem.
