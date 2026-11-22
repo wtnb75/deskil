@@ -25,6 +25,12 @@
 - efficiency・altitude: 指摘なし。
 - security-review: 指摘なし。
 
+## B-016
+
+- code-review / `render_step`: `--approval` が、ラベルの桁揃えの後ろに付くので、選択肢の行の `:` が揃わない。却下: 表示の好みで、動作は変わらない。
+- code-review / `next_step`: 承認の文字列が却下（「no」など）でも進める。選択肢と承認が結びつかない。却下: B-016 の判断が「エンジンでは強制せず、記録だけ残す」と決めている。
+- code-review / `flow-review`・`flow-convert` が `gate` に触れない。却下: どちらも状態キーの一覧を持たず、書き換えが要る箇所がない（`flow-author`・`flow-export` は更新済み）。
+
 ## B-012
 
 - 自己レビュー / `shared/flow/flow.py` `export_skill`: プロンプトに `## ` で始まる行があると、出力の見出しと区別できない。却下: 手書きのプロンプトでは起きず、見出しの書式は判断で決定済み。起きたら `lint` で検出する別項目にする。
