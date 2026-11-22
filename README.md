@@ -44,10 +44,14 @@ uv run flow.py lint <flow.toml> [--format text|json|github]  # find orphans, dea
 uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
 uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
 uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
-uv run flow.py start <flow.toml>                      # start a run, print the first step
+uv run flow.py start <flow.toml> [--ref main]         # start a run, print the first step
 uv run flow.py next <run-id> [--result <label>]       # report a result, print the next step
 uv run flow.py status <run-id>                        # where is this run?
 ```
+
+A state may carry `run = ["cmd", "arg"]`; flow then runs it and shows the exit code and
+output. Commands run only if the definition is identical to its copy at `--ref`
+(default `main`); otherwise they are shown but not executed.
 
 Run state is stored in `.flow/runs/` of the working directory
 (override with `--state-dir` or `FLOW_STATE_DIR`). See

@@ -17,12 +17,14 @@ import os
 import random
 import re
 import shlex
+import signal
 import string
+import subprocess
 import sys
 import tempfile
 import tomllib
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -74,7 +76,13 @@ TOP_KEYS = {"schema", "start", "notes", "states"}
 NOTES_KEYS = {"always", "common"}
 STATE_KEYS = {
     "prompt", "notes", "goto", "choices", "end", "max_visits", "on_exceed", "delegate",
+    "run", "timeout", "cwd", "output_lines",
 }
+# Options that only make sense together with `run`.
+RUN_OPTION_KEYS = ("timeout", "cwd", "output_lines")
+DEFAULT_TIMEOUT = 300
+DEFAULT_OUTPUT_LINES = 100
+DEFAULT_REF = "main"
 CHOICE_KEYS = {"label", "when", "goto"}
 # Subagent type names, optionally namespaced by a plugin (e.g. "reviewer", "plugin:agent").
 AGENT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]*$")
@@ -173,6 +181,29 @@ def _check_choices(
         _check_target(ch.get("goto"), f"{cw}.goto", state_ids, issues)
 
 
+def _check_run(st: dict, where: str, issues: list[Issue]) -> None:
+    """Check `run` (a command as an argument list) and its options."""
+    if "run" in st:
+        argv = st["run"]
+        if not (
+            isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)
+        ):
+            _err(issues, "type", f"{where}.run", "run must be a non-empty list of non-empty strings")
+    else:
+        for key in RUN_OPTION_KEYS:
+            if key in st:
+                _err(issues, "option-without-run", f"{where}.{key}", f"{key} has no effect without run")
+    for key in ("timeout", "output_lines"):
+        if key in st and (type(st[key]) is not int or st[key] < 1):
+            _err(issues, "type", f"{where}.{key}", f"{key} must be an integer >= 1")
+    if "cwd" in st:
+        cwd = st["cwd"]
+        if not isinstance(cwd, str) or not cwd:
+            _err(issues, "type", f"{where}.cwd", "cwd must be a relative path (a string)")
+        elif Path(cwd).is_absolute() or ".." in Path(cwd).parts:
+            _err(issues, "cwd-outside", f"{where}.cwd", f"'{cwd}' must stay inside the definition directory")
+
+
 def _check_state(
     sid: str, st: object, state_ids: set[str], common: set[str], base_dir: Path,
     issues: list[Issue],
@@ -202,12 +233,14 @@ def _check_state(
     is_end = st.get("end") is True
     if "end" in st and not isinstance(st["end"], bool):
         _err(issues, "type", f"{where}.end", "end must be true or false")
-    if is_end and any(k in st for k in ("goto", "choices", "max_visits", "on_exceed", "delegate")):
+    if is_end and any(
+        k in st for k in ("goto", "choices", "max_visits", "on_exceed", "delegate", "run")
+    ):
         _err(
             issues,
             "end-with-transition",
             where,
-            "an end state cannot have goto/choices/max_visits/on_exceed/delegate",
+            "an end state cannot have goto/choices/max_visits/on_exceed/delegate/run",
         )
     else:
         count = sum(1 for k in ("goto", "choices") if k in st) + (1 if is_end else 0)
@@ -223,6 +256,8 @@ def _check_state(
                 f"{where}.delegate",
                 f"delegate must be an agent name matching {AGENT_RE.pattern}",
             )
+
+    _check_run(st, where, issues)
 
     if "goto" in st:
         _check_target(st["goto"], f"{where}.goto", state_ids, issues)
@@ -476,6 +511,10 @@ class State:
     max_visits: int | None
     on_exceed: str | None
     delegate: str | None = None
+    run: tuple[str, ...] | None = None
+    timeout: int | None = None
+    cwd: str | None = None
+    output_lines: int | None = None
 
 
 @dataclass(frozen=True)
@@ -526,6 +565,10 @@ def load_definition(path: Path) -> Definition:
             max_visits=st.get("max_visits"),
             on_exceed=st.get("on_exceed"),
             delegate=st.get("delegate"),
+            run=tuple(st["run"]) if "run" in st else None,
+            timeout=st.get("timeout"),
+            cwd=st.get("cwd"),
+            output_lines=st.get("output_lines"),
         )
     return Definition(
         path=path,
@@ -542,8 +585,40 @@ def load_definition(path: Path) -> Definition:
 # ---------------------------------------------------------------------------
 
 
-def render_step(defn: Definition, state_id: str, run_id: str, cmd: str = "flow") -> str:
-    """Render what the LLM sees for one state. Reads only the files that state needs."""
+def render_command(result: dict) -> str:
+    """Render the command section of a step: the outcome, or why nothing was run."""
+    shown = shlex.join(result["argv"])
+    if not result["executed"]:
+        return f"Command not executed ({result['reason']}): `{shown}`"
+    lines = [f"Command: `{shown}`"]
+    if result.get("error"):
+        lines.append(f"Failed to start: {result['error']}")
+        return "\n".join(lines)
+    if result["exit_code"] is None:
+        lines.append(f"Exit code: timeout (killed after {result['timeout']}s)")
+    else:
+        lines.append(f"Exit code: {result['exit_code']}")
+    for name in ("stdout", "stderr"):
+        text = result[name]
+        cut = result[f"{name}_truncated"]
+        if not text and not cut:
+            lines.append(f"{name}: (empty)")
+            continue
+        head = f"{name} (last {result['output_lines']} lines"
+        if cut:
+            head += f"; {cut} lines truncated; full output: {result[f'{name}_file']}"
+        lines.append(head + "):")
+        lines.append(text.rstrip("\n"))
+    return "\n".join(lines)
+
+
+def render_step(
+    defn: Definition, state_id: str, run_id: str, cmd: str = "flow", command: dict | None = None
+) -> str:
+    """Render what the LLM sees for one state. Reads only the files that state needs.
+
+    `command` is the outcome of the state's `run` (see execute_state), if there is one.
+    """
     st = defn.states[state_id]
     sections = [f"[{st.id}] (run: {run_id})\n{read_text_value(st.prompt, defn.base_dir)}"]
 
@@ -554,6 +629,9 @@ def render_step(defn: Definition, state_id: str, run_id: str, cmd: str = "flow")
             notes.append(text)
     if notes:
         sections.append("Notes:\n" + "\n".join(f"- {n}" for n in notes))
+
+    if command is not None:
+        sections.append(render_command(command))
 
     if st.delegate:
         sections.append(
@@ -595,6 +673,9 @@ class Run:
     visits: dict[str, int]
     history: list[dict]  # {"state", "label", "at"}
     status: str  # "running" or "ended"
+    ref: str = DEFAULT_REF  # commands run only if the definition equals this git ref's copy
+    cwd: str = ""  # where `start` ran; the default working directory of commands
+    commands: list[dict] = field(default_factory=list)  # one record per command step entered
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -625,6 +706,9 @@ def load_run(state_dir: Path, run_id: str) -> Run:
             visits=dict(data["visits"]),
             history=list(data["history"]),
             status=data["status"],
+            ref=data.get("ref", DEFAULT_REF),
+            cwd=data.get("cwd", ""),
+            commands=list(data.get("commands", [])),
         )
     except (ValueError, KeyError, TypeError) as e:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
@@ -691,7 +775,125 @@ def step_target(defn: Definition, visits: dict[str, int], current: str, label: s
     raise FlowError("on_exceed chain does not terminate")
 
 
-def start_run(defn_path: Path, state_dir: Path, cmd: str = "flow") -> str:
+def _tail(data: bytes, limit: int) -> tuple[str, int]:
+    """Decode output and keep its last `limit` lines; return (text, number of lines cut)."""
+    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
+    cut = max(0, len(lines) - limit)
+    return "".join(lines[cut:]), cut
+
+
+def _ref_check(path: Path, ref: str) -> tuple[str | None, dict]:
+    """Check that `path` equals its copy at `ref`; return (reason or None, committed state table).
+
+    The repository is found from the definition's own directory, not the caller's. The state
+    table is parsed from the committed bytes, so what runs is what git holds, even if the
+    working file changes between the comparison and the execution.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(path.parent), "show", f"{ref}:./{path.name}"],
+            capture_output=True,
+            stdin=subprocess.DEVNULL,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"cannot run git: {e}", {}
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        msg = detail[-1] if detail else "git failed"
+        return f"cannot read {path.name} at ref '{ref}': {msg}", {}
+    try:
+        same = proc.stdout == path.read_bytes()
+    except OSError as e:
+        return f"cannot read {path}: {e.strerror}", {}
+    if not same:
+        return f"the definition differs from ref '{ref}'", {}
+    try:
+        states = tomllib.loads(proc.stdout.decode("utf-8"))["states"]
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError, KeyError) as e:
+        return f"cannot parse {path.name} at ref '{ref}': {e}", {}
+    return None, states
+
+
+def execute_state(
+    defn: Definition, st: State, run: Run, state_dir: Path | None, dry: bool = False
+) -> dict | None:
+    """Run the command of a state (if it has one) and return its record.
+
+    The command runs only if the definition file is identical to its copy at the run's ref
+    (checked on every call, so editing the file and using --force cannot smuggle in commands).
+    Otherwise the command is only shown. A command that cannot start is reported, not raised.
+    """
+    if st.run is None:
+        return None
+    visit = run.visits.get(st.id, 1)
+    limit = st.output_lines or DEFAULT_OUTPUT_LINES
+    timeout = st.timeout or DEFAULT_TIMEOUT
+    rec: dict = {
+        "state": st.id, "visit": visit, "argv": list(st.run), "executed": False,
+        "reason": "", "output_lines": limit, "timeout": timeout, "error": None,
+        "exit_code": None, "stdout": "", "stderr": "", "stdout_truncated": 0,
+        "stderr_truncated": 0, "stdout_file": None, "stderr_file": None,
+    }
+    reason, committed = ("dry run", {}) if dry else _ref_check(defn.path, run.ref)
+    entry = committed.get(st.id)
+    if not reason and not (isinstance(entry, dict) and entry.get("run") == list(st.run)):
+        reason = f"the command differs from ref '{run.ref}'"
+    if reason:
+        rec["reason"] = reason
+        return rec
+    rec["executed"] = True
+    argv = list(entry["run"])  # from the committed copy, not the (mutable) working file
+    cwd = defn.base_dir / entry["cwd"] if entry.get("cwd") else Path(run.cwd or Path.cwd())
+    try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as e:
+        rec["error"] = f"{e.strerror or e} ({argv[0]})"
+        return rec
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        rec["exit_code"] = proc.returncode
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # the whole group, so grandchildren die too
+        except OSError:
+            proc.kill()
+        try:
+            out, err = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            out, err = b"", b""
+    for name, data in (("stdout", out), ("stderr", err)):
+        rec[name], rec[f"{name}_truncated"] = _tail(data, limit)
+        if state_dir is not None:
+            target = state_dir / run.run_id / f"{st.id}-{visit}.{name}"
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+                rec[f"{name}_file"] = str(target)
+            except OSError:
+                pass  # the full text is best effort; the tail is still reported
+    return rec
+
+
+def _enter(defn: Definition, run: Run, state_dir: Path, cmd: str) -> str:
+    """Run the current state's command (if any), record it, and render the step."""
+    result = execute_state(defn, defn.states[run.current], run, state_dir)
+    if result is not None:
+        run.commands.append(result)
+    return render_step(defn, run.current, run.run_id, cmd, result)
+
+
+def start_run(
+    defn_path: Path, state_dir: Path, cmd: str = "flow", ref: str = DEFAULT_REF
+) -> str:
     """Create a run, save it, and return the first step's output."""
     defn = load_definition(defn_path)
     run = Run(
@@ -702,10 +904,12 @@ def start_run(defn_path: Path, state_dir: Path, cmd: str = "flow") -> str:
         visits={defn.start: 1},
         history=[],
         status="ended" if defn.states[defn.start].end else "running",
+        ref=ref,
+        cwd=str(Path.cwd()),
     )
     try:
         run.definition_hash = _file_hash(defn.path)
-        out = render_step(defn, run.current, run.run_id, cmd)
+        out = _enter(defn, run, state_dir, cmd)
         save_run(state_dir, run)
     except BaseException:
         _run_path(state_dir, run.run_id).unlink(missing_ok=True)  # release the reserved id
@@ -748,7 +952,7 @@ def next_step(
     run.definition_hash = new_hash
     if defn.states[target].end:
         run.status = "ended"
-    out = render_step(defn, target, run.run_id, cmd)
+    out = _enter(defn, run, state_dir, cmd)
     save_run(state_dir, run)
     return out
 
@@ -783,6 +987,13 @@ DRY_RUN_SEPARATOR = "\n---\n\n"
 DRY_RUN_MAX_STEPS = 1000
 
 
+def _dry_step(defn: Definition, state_id: str, cmd: str) -> str:
+    """Render one step for a dry run: a state's command is shown, never executed."""
+    run = Run(DRY_RUN_ID, str(defn.path), "", state_id, {}, [], "running")
+    result = execute_state(defn, defn.states[state_id], run, None, dry=True)
+    return render_step(defn, state_id, DRY_RUN_ID, cmd, result)
+
+
 def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> str:
     """Show what a run would print, without creating any state.
 
@@ -792,13 +1003,13 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
     defn = load_definition(defn_path)
     if results is None:
         return DRY_RUN_SEPARATOR.join(
-            render_step(defn, sid, DRY_RUN_ID, cmd) for sid in defn.states
+            _dry_step(defn, sid, cmd) for sid in defn.states
         )
 
     queue = list(results)
     visits = {defn.start: 1}
     current = defn.start
-    steps = [render_step(defn, current, DRY_RUN_ID, cmd)]
+    steps = [_dry_step(defn, current, cmd)]
     note = ""
     for _ in range(DRY_RUN_MAX_STEPS):
         st = defn.states[current]
@@ -813,7 +1024,7 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
             label = None
         current = step_target(defn, visits, current, label)
         visits[current] = visits.get(current, 0) + 1
-        steps.append(render_step(defn, current, DRY_RUN_ID, cmd))
+        steps.append(_dry_step(defn, current, cmd))
     else:
         raise FlowError(f"dry-run did not finish within {DRY_RUN_MAX_STEPS} steps")
     if queue:
@@ -978,6 +1189,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("start", parents=[common], help="start a run and print the first step")
     p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--ref",
+        default=DEFAULT_REF,
+        help=f"git ref whose copy of the definition may run its commands (default: {DEFAULT_REF}); "
+        "a definition that differs from it is shown only",
+    )
 
     p = sub.add_parser("next", parents=[common], help="record a result and print the next step")
     p.add_argument("run_id")
@@ -1037,7 +1254,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         state_dir = _resolve_state_dir(args.state_dir)
         if args.command == "start":
-            out = start_run(args.definition, state_dir, _default_cmd())
+            out = start_run(args.definition, state_dir, _default_cmd(), args.ref)
         elif args.command == "next":
             out = next_step(args.run_id, args.result, state_dir, _default_cmd(), args.force)
         else:
