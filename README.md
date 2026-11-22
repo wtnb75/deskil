@@ -5,8 +5,8 @@ Claude Code plugin marketplace.
 ## Install
 
 ```
-/plugin marketplace add <github-user>/<repo>
-/plugin install feature-a@deskil
+/plugin marketplace add wtnb75/deskil
+/plugin install deskil@deskil
 ```
 
 ## Layout
@@ -24,7 +24,7 @@ plugins/<name>/
 
 | Plugin | What it is |
 |---|---|
-| `core` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
+| `deskil` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
 | `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
 | `feature-b` | Sample plugin that uses the shared script. |
 
