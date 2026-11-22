@@ -1,10 +1,13 @@
 ---
 name: backlog-decide
-description: Pick a todo item in docs/BACKLOG.md, compare approaches with the user, record the decision and make the item ready (or drop it)
+description: Pick one todo item, or a batch such as "top 10" or "P2 10", in docs/BACKLOG.md, compare approaches with the user, record the decisions and make the items ready (or drop them)
 allowed-tools: Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
 ---
 
 Run this skill as a step-by-step flow.
+
+The user may name one item (`B-012`) or a batch: `top 10` (the first 10 by priority) or `P2 10` (the first 10 of
+priority P2 or higher). Keep that scope from the request; the flow reads it in its first step.
 
 In the steps, `backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`.
 

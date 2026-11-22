@@ -138,6 +138,36 @@ def test_list_shows_dash_for_missing_priority(backlog):
     assert "B-003  todo  -  Third" in backlog.render_list(backlog.parse(text), None)
 
 
+def test_list_priority_keeps_that_priority_or_higher(backlog):
+    bl = backlog.parse(SAMPLE)
+    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
+    assert ids(backlog.render_list(bl, None, priority="P1")) == ["B-002"]
+    assert ids(backlog.render_list(bl, None, priority="P2")) == ["B-001", "B-002"]
+    assert ids(backlog.render_list(bl, None, priority="P3")) == ["B-001", "B-002", "B-003"]
+
+
+def test_list_priority_excludes_items_without_priority(backlog):
+    text = SAMPLE.replace("- 優先度: P3\n", "")
+    out = backlog.render_list(backlog.parse(text), None, priority="P3")
+    assert "B-003" not in out
+
+
+def test_list_limit_applies_after_sorting_and_priority_filter(backlog):
+    bl = backlog.parse(SAMPLE)
+    assert backlog.render_list(bl, None, limit=1).splitlines() == ["B-001  ready  P2  First"]
+    out = backlog.render_list(bl, None, priority="P2", limit=2)
+    assert [line.split("  ")[0] for line in out.splitlines()] == ["B-001", "B-002"]
+    assert backlog.render_list(bl, None, limit=10).count("\n") == 2
+
+
+def test_list_rejects_invalid_priority_and_limit(backlog):
+    bl = backlog.parse(SAMPLE)
+    with pytest.raises(backlog.BacklogError):
+        backlog.render_list(bl, None, priority="P9")
+    with pytest.raises(backlog.BacklogError):
+        backlog.render_list(bl, None, limit=0)
+
+
 # --- show ------------------------------------------------------------------
 
 
@@ -419,6 +449,14 @@ def test_cli_list_and_next_id(backlog, tmp_path, capsys):
     assert capsys.readouterr().out == "B-005\n"
     assert backlog.main(["--file", str(path), "show", "B-003"]) == 0
     assert capsys.readouterr().out.startswith("### B-003 Third\n")
+
+
+def test_cli_list_priority_and_limit(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "list", "--priority", "P2", "--limit", "1"]) == 0
+    assert capsys.readouterr().out == "B-001  ready  P2  First\n"
+    assert backlog.main(["--file", str(path), "list", "--priority", "P9"]) == 2
+    assert "P9" in capsys.readouterr().err
 
 
 def test_cli_missing_file_exits_2(backlog, tmp_path, capsys):
