@@ -151,14 +151,6 @@
 - 背景: `impl` が作る PR の本文は、今は英語になっている。このプロジェクトの利用者は日本語で読むため、レビューしにくい。
 - 概要: `impl` の `open_pr` 状態で、PR のタイトルと本文を日本語で書くよう指示する。コミットメッセージとコード中のコメントは英語のままにするか、PR のタイトルも日本語にするかは未決。プロジェクトごとの言語規則（CLAUDE.md）に従わせる形にするかも検討する。
 
-### B-026 impl: origin/main を fetch してそこから作業を始める
-- 状態: ready
-- 優先度: P2
-- 追加: 2026-11-22
-- 背景: `impl` の `prepare` 状態は、ローカルのデフォルトブランチが最新であることを前提にしている。ローカルの main が古いと、古い内容からブランチを切ってしまう。
-- 概要: `prepare` で `git fetch origin` を実行し、`origin/<default branch>` から新しいブランチを作る（`git switch -c <branch> origin/main`）。ローカルの main を更新（pull）する手順は不要になる。作業ツリーが汚れている場合に止める点は残す。デフォルトブランチ名の判定方法（`git symbolic-ref refs/remotes/origin/HEAD` など）は未決。
-- 判断: `prepare` で `git fetch origin` し、`git switch -c <branch> origin/<デフォルト> --no-track` で切る。デフォルト名は `git symbolic-ref --short refs/remotes/origin/HEAD` で取り、取れなければ止めてユーザーに聞く。作業ツリーが汚れていれば止める点は残す。ローカルの main を更新する手順は置かない。（2026-11-22）
-
 ### B-027 impl: 終了時にデフォルトブランチへ戻る
 - 状態: ready
 - 優先度: P2
@@ -305,3 +297,13 @@
 - 判断: `--format text|json|github` を実装する。Issue は行番号を持たないので、`github` は `::error file=<定義>::` の形で行番号を省略する。SARIF は足さず、必要になったら別項目として積む。（2026-11-22）
 - 完了: 2026-11-22
 - PR: #12
+
+### B-026 impl: origin/main を fetch してそこから作業を始める
+- 状態: done
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: `impl` の `prepare` 状態は、ローカルのデフォルトブランチが最新であることを前提にしている。ローカルの main が古いと、古い内容からブランチを切ってしまう。
+- 概要: `prepare` で `git fetch origin` を実行し、`origin/<default branch>` から新しいブランチを作る（`git switch -c <branch> origin/main`）。ローカルの main を更新（pull）する手順は不要になる。作業ツリーが汚れている場合に止める点は残す。デフォルトブランチ名の判定方法（`git symbolic-ref refs/remotes/origin/HEAD` など）は未決。
+- 判断: `prepare` で `git fetch origin` し、`git switch -c <branch> origin/<デフォルト> --no-track` で切る。デフォルト名は `git symbolic-ref --short refs/remotes/origin/HEAD` で取り、取れなければ止めてユーザーに聞く。作業ツリーが汚れていれば止める点は残す。ローカルの main を更新する手順は置かない。（2026-11-22）
+- 完了: 2026-11-22
+- PR: #14

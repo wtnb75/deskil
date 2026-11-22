@@ -24,10 +24,14 @@ when = "No ready and unblocked item exists, or the named item cannot be implemen
 goto = "report_none"
 
 [states.prepare]
-prompt = """Make sure the working tree is clean (`git status --short` prints nothing) and that you start from the
-project's default branch, up to date. If the tree is not clean, stop here: tell the user and do not run the next command.
-Create the branch `backlog/<ID>-<slug>` (slug: the item title as lowercase ASCII words joined by hyphens).
-If a worktree skill or tool is available, you may create the branch in a worktree instead."""
+prompt = """Make sure the working tree is clean (`git status --short` prints nothing).
+If the tree is not clean, stop here: tell the user and do not run the next command.
+Run `git fetch origin`, then find the default branch with `git symbolic-ref --short refs/remotes/origin/HEAD`
+(it prints `origin/<default branch>`). If that fails, stop and ask the user which branch to start from.
+Create the branch from the fetched remote branch, not from the local one:
+`git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track`
+(slug: the item title as lowercase ASCII words joined by hyphens). Do not update the local default branch.
+If a worktree skill or tool is available, you may create the branch in a worktree from the same start point instead."""
 goto = "plan"
 
 [states.plan]
