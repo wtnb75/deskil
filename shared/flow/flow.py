@@ -94,6 +94,7 @@ STATE_KEYS = {
     "max_visits",
     "on_exceed",
     "delegate",
+    "gate",
     "run",
     "timeout",
     "cwd",
@@ -367,13 +368,21 @@ def _check_state(
         _err(issues, "type", f"{where}.end", "end must be true or false")
     if is_end and any(
         k in st
-        for k in ("goto", "choices", "max_visits", "on_exceed", "delegate", "run")
+        for k in (
+            "goto",
+            "choices",
+            "max_visits",
+            "on_exceed",
+            "delegate",
+            "gate",
+            "run",
+        )
     ):
         _err(
             issues,
             "end-with-transition",
             where,
-            "an end state cannot have goto/choices/max_visits/on_exceed/delegate/run",
+            "an end state cannot have goto/choices/max_visits/on_exceed/delegate/gate/run",
         )
     else:
         count = sum(1 for k in ("goto", "choices") if k in st) + (1 if is_end else 0)
@@ -394,6 +403,16 @@ def _check_state(
                 f"{where}.delegate",
                 f"delegate must be an agent name matching {AGENT_RE.pattern}",
             )
+
+    if "gate" in st and not isinstance(st["gate"], bool):
+        _err(issues, "type", f"{where}.gate", "gate must be true or false")
+    if st.get("gate") is True and "delegate" in st:
+        _err(
+            issues,
+            "gate-with-delegate",
+            where,
+            "gate cannot be combined with delegate: a subagent cannot ask the user",
+        )
 
     _check_run(st, where, issues)
 
@@ -960,6 +979,7 @@ class State:
     timeout: int | None = None
     cwd: str | None = None
     output_lines: int | None = None
+    gate: bool = False
     always: tuple[
         Text, ...
     ] = ()  # notes.always of the definition that wrote this state
@@ -1041,6 +1061,7 @@ def load_definition(path: Path) -> Definition:
             timeout=st.get("timeout"),
             cwd=st.get("cwd"),
             output_lines=st.get("output_lines"),
+            gate=st.get("gate") is True,
             always=tuple(st["_always"]),
         )
     return Definition(
@@ -1122,12 +1143,21 @@ def render_step(
             "and returns that command's output to you. Continue from that output."
         )
 
+    if st.gate:
+        sections.append(
+            "Gate: this step needs the user's approval. Ask the user to confirm "
+            "(use an interactive tool such as AskUserQuestion). "
+            "If approved, go on; if rejected, do not go on. "
+            "Pass the user's answer with --approval."
+        )
+
+    approval = ' --approval "<the user\'s answer>"' if st.gate else ""
     if st.end:
         sections.append("Flow complete.")
     elif st.choices:
         width = max(len(c.label) for c in st.choices)
         lines = [
-            f"  {cmd} next {run_id} --result {c.label.ljust(width)} : "
+            f"  {cmd} next {run_id} --result {c.label.ljust(width)}{approval} : "
             f"{read_text_value(c.when, defn.base_dir)}"
             for c in st.choices
         ]
@@ -1136,7 +1166,9 @@ def render_step(
         )
         sections.append("\n".join([header, *lines]))
     else:
-        sections.append(f"After finishing the work, run:\n  {cmd} next {run_id}")
+        sections.append(
+            f"After finishing the work, run:\n  {cmd} next {run_id}{approval}"
+        )
     return "\n\n".join(sections) + "\n"
 
 
@@ -1478,9 +1510,11 @@ def next_step(
     state_dir: Path,
     cmd: str = "flow",
     force: bool = False,
+    approval: str | None = None,
 ) -> str:
     """Record the result of the current step and return the next step's output.
 
+    A `gate` step needs `approval` (the user's answer); it is kept in the history.
     Nothing is written unless every check passes.
     """
     run = load_run(state_dir, run_id)
@@ -1500,14 +1534,24 @@ def next_step(
             f"current state '{run.current}' no longer exists in the definition"
         )
 
+    # Check the result first, so a wrong label is reported before a missing approval.
     target = step_target(defn, run.visits, run.current, label)
-    run.history.append(
-        {
-            "state": run.current,
-            "label": label,
-            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        }
-    )
+    gate = defn.states[run.current].gate
+    if gate and not (approval and approval.strip()):
+        raise FlowError(
+            f"step '{run.current}' is a gate: ask the user and pass the answer with --approval"
+        )
+    if approval is not None and not gate:
+        raise FlowError(f"step '{run.current}' takes no --approval")
+
+    entry = {
+        "state": run.current,
+        "label": label,
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    if gate:
+        entry["approval"] = approval.strip()
+    run.history.append(entry)
     run.visits[target] = run.visits.get(target, 0) + 1
     run.current = target
     run.definition_hash = new_hash
@@ -1532,6 +1576,7 @@ def status_text(run_id: str, state_dir: Path) -> str:
         lines.append("History:")
         lines += [
             f"  {i}. {h['state']} (result: {h['label'] or '-'})"
+            + (f" (approval: {h['approval']})" if "approval" in h else "")
             for i, h in enumerate(run.history, 1)
         ]
     else:
@@ -1717,6 +1762,7 @@ EXPORT_WORDS = {
         "unenforced": "Not enforced without the flow engine: {items}.",
         "run": "Run `{cmd}` first.",
         "delegate": "Hand this step to the subagent `{name}`.",
+        "gate": "Ask the user to confirm before going on; do not go on if rejected.",
     },
     "ja": {
         "start": "`{id}` から始める。",
@@ -1727,6 +1773,7 @@ EXPORT_WORDS = {
         "unenforced": "flow エンジンがないと強制されない: {items}。",
         "run": "まず `{cmd}` を実行する。",
         "delegate": "この手順はサブエージェント `{name}` に任せる。",
+        "gate": "進む前にユーザーに確認し、却下されたら進めない。",
     },
 }
 EXPORT_LANGS = ("auto", *EXPORT_WORDS)
@@ -1780,6 +1827,8 @@ def export_skill(defn_path: Path, lang: str = "auto") -> tuple[str, list[str]]:
             out += [w["run"].format(cmd=shlex.join(st.run)), ""]
         if st.delegate:
             out += [w["delegate"].format(name=st.delegate), ""]
+        if st.gate:
+            out += [w["gate"], ""]
         out.append(text(st.prompt))
         notes: list[str] = []
         for item in [*st.always, *(defn.common[n] for n in st.notes)]:
@@ -1808,6 +1857,9 @@ def export_skill(defn_path: Path, lang: str = "auto") -> tuple[str, list[str]]:
         if st.delegate:
             unenforced.append("delegate")
             dropped.append(f"state {st.id}: delegate is no longer set up by the engine")
+        if st.gate:
+            unenforced.append("gate")
+            dropped.append(f"state {st.id}: gate is no longer recorded by the engine")
         if unenforced:
             out.append(w["unenforced"].format(items=", ".join(unenforced)))
     return "\n".join(out) + "\n", dropped
@@ -1972,6 +2024,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_id")
     p.add_argument("--result", help="the chosen result label")
     p.add_argument(
+        "--approval",
+        help="the user's answer; required to leave a gate step, recorded in the run",
+    )
+    p.add_argument(
         "--force", action="store_true", help="continue even if the definition changed"
     )
 
@@ -2063,7 +2119,12 @@ def main(argv: list[str] | None = None) -> int:
             out = start_run(args.definition, state_dir, _default_cmd(), args.ref)
         elif args.command == "next":
             out = next_step(
-                args.run_id, args.result, state_dir, _default_cmd(), args.force
+                args.run_id,
+                args.result,
+                state_dir,
+                _default_cmd(),
+                args.force,
+                args.approval,
             )
         else:
             out = status_text(args.run_id, state_dir)
