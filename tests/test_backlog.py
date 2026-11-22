@@ -384,6 +384,28 @@ def test_cli_archive(backlog, tmp_path):
     assert backlog.main(["--file", str(path), "archive", "B-002", "--dropped"]) == 2  # no 判断 yet
 
 
+# --- the real backlog ------------------------------------------------------
+
+
+def real_backlog(backlog):
+    return backlog.parse((ROOT / "docs" / "BACKLOG.md").read_text(encoding="utf-8"))
+
+
+def test_real_backlog_is_clean(backlog):
+    assert backlog.lint(real_backlog(backlog)) == []
+
+
+def test_real_backlog_has_priorities_and_known_dependencies(backlog):
+    items = {i.id: i for i in real_backlog(backlog).items}
+    for item in items.values():
+        if item.get("状態") in ("todo", "ready"):
+            assert item.get("優先度") in backlog.PRIORITIES, item.id
+    assert items["B-010"].get("依存") == "B-009"
+    assert items["B-012"].get("依存") == "B-011"
+    assert items["B-014"].get("依存") == "B-011, B-012"
+    assert items["B-022"].get("状態") == "todo"
+
+
 # --- CLI -------------------------------------------------------------------
 
 
