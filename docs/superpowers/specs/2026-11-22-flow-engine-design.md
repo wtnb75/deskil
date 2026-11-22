@@ -138,7 +138,7 @@ end    = true
 | `flow start <定義>` | run を作成し、最初のステップを出力する。 |
 | `flow next <run-id> --result <label>` | 判定を記録して遷移し、次のステップを出力する。 |
 | `flow status <run-id>` | 現在地・訪問回数・履歴を出力する。中断後の再開に使う。 |
-| `flow lint <定義>` | 構造を検査する。エラーがあれば終了コード 1。 |
+| `flow lint <定義> [--format text\|json\|github]` | 構造を検査する。エラーがあれば終了コード 1。`json` は `{"file", "issues": [{level, code, where, message}]}`、`github` は `::error file=<定義>::...` / `::warning ...`（Issue は行番号を持たないので file のみ）。`json` / `github` では、TOML を読めない場合も `read-error` の issue として出力する（B-008）。 |
 | `flow dry-run <定義> [--results a,b,c]` | 状態ファイルを作らずに、定義を辿った出力を確認する。`--results` を省くと、全ステートの出力を一覧する。 |
 | `flow graph <定義>` | 状態遷移を Mermaid の `flowchart TD` として出力する（B-007）。`goto` と `choices`（ラベル付き）は実線、`on_exceed` は破線（`max N`）。ノード ID は `n_<ID>` で、`end` などの予約語を避ける。実行履歴の重ね表示と DOT 出力はしない。 |
 | `flow rename <定義> <旧ID> <新ID>` | ステート ID を、すべての参照も含めて改名する。実行後に lint を通し、失敗したら元に戻す。 |
