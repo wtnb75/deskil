@@ -203,6 +203,45 @@ def test_list_not_started_cli(backlog, tmp_path, monkeypatch, capsys):
     assert [line.split("  ")[0] for line in out.splitlines()] == ["B-002", "B-003"]
 
 
+def _repo_with_backlog(tmp_path: Path, committed: str, relpath: str = "docs/BACKLOG.md") -> Path:
+    import subprocess
+
+    repo = tmp_path / "repo"
+    (repo / relpath).parent.mkdir(parents=True)
+    (repo / relpath).write_text(committed, encoding="utf-8")
+    for args in (["init", "-q", "-b", "main"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "x"]):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+def test_ref_reads_committed_backlog_not_working_tree(backlog, tmp_path, monkeypatch, capsys):
+    stale = SAMPLE.replace("- 状態: ready", "- 状態: todo", 1)  # the working tree is behind the ref
+    repo = _repo_with_backlog(tmp_path, SAMPLE)
+    (repo / "docs/BACKLOG.md").write_text(stale, encoding="utf-8")
+    monkeypatch.chdir(repo)
+    assert backlog.main(["list", "--status", "ready"]) == 0
+    assert capsys.readouterr().out == ""
+    assert backlog.main(["--ref", "main", "list", "--status", "ready"]) == 0
+    assert capsys.readouterr().out.startswith("B-001")
+    assert backlog.main(["--ref", "main", "show", "B-001"]) == 0
+    assert "decided" in capsys.readouterr().out
+
+
+def test_ref_rejects_write_commands(backlog, tmp_path, monkeypatch, capsys):
+    repo = _repo_with_backlog(tmp_path, SAMPLE)
+    monkeypatch.chdir(repo)
+    assert backlog.main(["--ref", "main", "set", "B-001", "優先度", "P1"]) == 2
+    assert "read-only" in capsys.readouterr().err
+    assert backlog.main(["--ref", "main", "archive", "B-001", "--dropped"]) == 2
+
+
+def test_ref_unknown_ref_fails(backlog, tmp_path, monkeypatch, capsys):
+    repo = _repo_with_backlog(tmp_path, SAMPLE)
+    monkeypatch.chdir(repo)
+    assert backlog.main(["--ref", "origin/nope", "list"]) == 2
+    assert "cannot read" in capsys.readouterr().err
+
+
 def test_list_rejects_invalid_priority_and_limit(backlog):
     bl = backlog.parse(SAMPLE)
     with pytest.raises(backlog.BacklogError):

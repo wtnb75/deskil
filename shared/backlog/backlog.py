@@ -454,6 +454,17 @@ def archive_item(text: str, item_id: str, outcome: str, pr: int | None, today: d
 # ---------------------------------------------------------------------------
 
 
+def read_backlog_ref(ref: str, path: Path) -> tuple[str, Backlog]:
+    """Read the backlog as committed at a git ref (e.g. `origin/main`), ignoring the working tree."""
+    spec = f"{ref}:{path.as_posix()}"
+    try:
+        proc = subprocess.run(["git", "show", spec], capture_output=True, text=True, encoding="utf-8", check=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        raise BacklogError(f"cannot read {spec} with git: {detail.strip()}") from exc
+    return proc.stdout, parse(proc.stdout)
+
+
 def read_backlog(path: Path) -> tuple[str, Backlog]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -465,6 +476,10 @@ def read_backlog(path: Path) -> tuple[str, Backlog]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="backlog.py", description="Read and edit the project backlog.")
     parser.add_argument("--file", default=DEFAULT_FILE, help=f"backlog file (default: {DEFAULT_FILE})")
+    parser.add_argument(
+        "--ref",
+        help="read the backlog from this git ref (e.g. origin/main) instead of the working tree; read-only commands only",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("next-id", help="print the next free item id")
@@ -514,7 +529,12 @@ def write_checked(path: Path, old: str, new: str) -> None:
 
 def run(args: argparse.Namespace) -> int:
     path = Path(args.file)
-    text, bl = read_backlog(path)
+    if args.ref:
+        if args.command in ("set", "archive"):
+            raise BacklogError("--ref is read-only; it cannot be used with set or archive")
+        text, bl = read_backlog_ref(args.ref, path)
+    else:
+        text, bl = read_backlog(path)
     if args.command == "next-id":
         print(next_id(bl))
     elif args.command == "list":
