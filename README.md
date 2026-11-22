@@ -27,7 +27,7 @@ plugins/<name>/
 
 | Plugin | What it is |
 |---|---|
-| `deskil` | Skills for writing, reviewing, debugging and converting to flow definitions (`flow-author`, `flow-review`, `flow-convert`). |
+| `deskil` | Skills for writing, reviewing, debugging and converting to and from flow definitions (`flow-author`, `flow-review`, `flow-convert`, `flow-export`). |
 | `deskil-dev` | Skills for the backlog workflow, each written as a flow: `add`, `prio`, `decide`, `impl`. |
 | `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
 | `feature-b` | Sample plugin that uses the shared script. |
@@ -44,6 +44,7 @@ uv run flow.py lint <flow.toml> [--format text|json|github]  # find orphans, dea
 uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
 uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
 uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
+uv run flow.py export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
 uv run flow.py start <flow.toml> [--ref main]         # start a run, print the first step
 uv run flow.py next <run-id> [--result <label>]       # report a result, print the next step
 uv run flow.py status <run-id>                        # where is this run?
