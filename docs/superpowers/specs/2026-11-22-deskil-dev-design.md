@@ -104,7 +104,7 @@
 
 **backlog-decide**: `pick`（ユーザーの指定、なければブロック中でない先頭の `todo`）→ `investigate`（`show` と、関連するコードの確認）→ `options`（案を 2〜3 個出し、トレードオフと推奨を示す。`brainstorming` スキルがあれば使う）→ `confirm`（ユーザーが選ぶ）→ 結果で分岐: `ready`（`判断` を書き、`set` で `ready` に）／`dropped`（理由を書き `archive --dropped`）／`defer`（判断せず、分かったことを `概要` の未決に追記）→ `lint` → `report`。
 
-**backlog-implement**: `pick`（ユーザーの指定、なければブロック中でない `ready` の優先度最上位。見つからなければ終了）→ `prepare`（作業ツリーがきれいか確認し、`backlog/B-NNN-<slug>` のブランチを作る。worktree が使えれば使う）→ `plan`（小さな変更はその場で短く、大きければ計画書を `docs/superpowers/plans/` に。`writing-plans` があれば使う）→ `implement`（テストを先に書く方針。`test-driven-development` があれば使う）→ `verify`（テストと lint を実行。失敗なら `fix`、`max_visits = 2`、超えたら `report_fail` で PR を作らず終了）→ `finish_backlog`（`archive --done` で項目を移し、`lint`）→ `commit`（`CLAUDE.md` のコミット規約に従う）→ `open_pr`（push して `gh pr create`。マージはしない）→ `record_pr`（PR 番号を `set` で書いて追加コミット・push）→ `report`。
+**backlog-implement**: `pick`（ユーザーの指定、なければブロック中でない `ready` の優先度最上位。見つからなければ終了）→ `prepare`（作業ツリーがきれいか確認し、`git fetch origin` して、`origin/<デフォルトブランチ>` から `backlog/B-NNN-<slug>` のブランチを作る（B-026）。デフォルトブランチ名は `git symbolic-ref --short refs/remotes/origin/HEAD` で取り、取れなければ止めてユーザーに聞く。ローカルのデフォルトブランチは更新しない。worktree が使えれば使う）→ `plan`（小さな変更はその場で短く、大きければ計画書を `docs/superpowers/plans/` に。`writing-plans` があれば使う）→ `implement`（テストを先に書く方針。`test-driven-development` があれば使う）→ `verify`（テストと lint を実行。失敗なら `fix`、`max_visits = 2`、超えたら `report_fail` で PR を作らず終了）→ `finish_backlog`（`archive --done` で項目を移し、`lint`）→ `commit`（`CLAUDE.md` のコミット規約に従う）→ `open_pr`（push して `gh pr create`。マージはしない）→ `record_pr`（PR 番号を `set` で書いて追加コミット・push）→ `report`。
 
 ## 受け入れ条件
 

@@ -146,6 +146,25 @@ def test_implement_happy_path_order(tmp_path):
     assert out.endswith("Flow complete.\n")
 
 
+def prepare_step(tmp_path):
+    out = dry_run("impl", ["found"], tmp_path)
+    return out.split("[prepare]", 1)[1].split("[plan]", 1)[0]
+
+
+def test_implement_prepare_branches_from_a_fetched_origin(tmp_path):
+    step = prepare_step(tmp_path)
+    assert "git fetch origin" in step
+    assert "git symbolic-ref --short refs/remotes/origin/HEAD" in step
+    assert "git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track" in step
+    assert "clean" in step  # a dirty working tree still stops the flow
+
+
+def test_implement_prepare_does_not_rely_on_a_local_default_branch(tmp_path):
+    step = prepare_step(tmp_path)
+    assert "up to date" not in step
+    assert "pull" not in step.replace("pull request", "")
+
+
 def test_implement_failure_limit_skips_the_pr(tmp_path):
     out = dry_run("impl", ["found", "fail", "fail", "fail"], tmp_path)
     assert visited(out)[-1] == "report_fail"
