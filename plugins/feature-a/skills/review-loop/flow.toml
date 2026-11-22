@@ -1,0 +1,32 @@
+schema = 1
+start = "run_tests"
+
+[notes]
+always = ["Do not modify files outside the project directory."]
+
+[states.run_tests]
+prompt = "Run the project's test suite and read the result."
+
+[[states.run_tests.choices]]
+label = "pass"
+when = "All tests passed"
+goto = "report"
+
+[[states.run_tests.choices]]
+label = "fail"
+when = "One or more tests failed"
+goto = "fix"
+
+[states.fix]
+prompt = { file = "prompts/fix.md" }
+goto = "run_tests"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.report]
+prompt = "Report that all tests pass."
+end = true
+
+[states.report_fail]
+prompt = "Report that the tests still fail after two fix attempts, and list the remaining failures."
+end = true
