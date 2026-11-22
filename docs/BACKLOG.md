@@ -193,6 +193,55 @@
 - 背景: 初版は手元での実行（`task` や `pytest`）だけで確認しており、プッシュ・PR 時に自動で検査する仕組みがない。
 - 概要: GitHub Actions などで、PR ごとにテスト（`pytest`）、lint（`ruff`）、flow 定義の lint を自動実行する。対象の OS（Windows は B-004 に依存）、Python のバージョン、CI の基盤（GitHub Actions か他か）、必須チェックにするかは未決。
 
+### B-025 backlog-implement: PR 本文を日本語にする
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: `backlog-implement` が作る PR の本文は、今は英語になっている。このプロジェクトの利用者は日本語で読むため、レビューしにくい。
+- 概要: `backlog-implement` の `open_pr` 状態で、PR のタイトルと本文を日本語で書くよう指示する。コミットメッセージとコード中のコメントは英語のままにするか、PR のタイトルも日本語にするかは未決。プロジェクトごとの言語規則（CLAUDE.md）に従わせる形にするかも検討する。
+
+### B-026 backlog-implement: origin/main を fetch してそこから作業を始める
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: `backlog-implement` の `prepare` 状態は、ローカルのデフォルトブランチが最新であることを前提にしている。ローカルの main が古いと、古い内容からブランチを切ってしまう。
+- 概要: `prepare` で `git fetch origin` を実行し、`origin/<default branch>` から新しいブランチを作る（`git switch -c <branch> origin/main`）。ローカルの main を更新（pull）する手順は不要になる。作業ツリーが汚れている場合に止める点は残す。デフォルトブランチ名の判定方法（`git symbolic-ref refs/remotes/origin/HEAD` など）は未決。
+
+### B-027 backlog-implement: 終了時にデフォルトブランチへ戻る
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: `backlog-implement` は PR を作った後も作業ブランチに残る。次の作業（バックログの追記など）が、気づかないうちにマージ済みの作業ブランチ上で始まり、無関係な変更が PR に混ざる恐れがある。
+- 概要: `report` の前（または `finish_backlog` の後）で、デフォルトブランチへ切り替える手順を足す。worktree を使う方式（作業ブランチを別ディレクトリに隔離する）にするかは未決。
+
+### B-028 backlog-implement: ブロックされた項目をコードで除外する
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: `pick` では、`backlog.py list` の `[blocked by …]` 表示を LLM が読んで、ブロックされていない項目を選んでいる。B-024 で件数と優先度をコードに任せたのと同じ理由で、判定を LLM に任せると取り違える恐れがある。
+- 概要: `backlog.py list` に、ブロックされていない項目だけを表示するオプション（`--unblocked` など）を足し、`backlog-implement` と `backlog-decide` の `pick` で使う。オプションの名前と、`--priority` / `--limit` との組み合わせ時の適用順（絞り込みの後に件数を数える）を決める。
+
+### B-029 backlog-decide: 結果が混在するバッチの記録を素直にする
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: B-024 で一括決定を入れたが、`confirm` の遷移先が ready / dropped / defer の 1 つしかなく、結果が混在すると `write_decision` のプロンプトで「他の結果もここで記録する」と補っている。分かりにくく、実際の会話ではまだ検証していない。
+- 概要: 項目ごとに記録する状態のループにするか、複数項目の記録をまとめて行う `backlog.py` のコマンドを足すかを比べて決める。先に、B-024 の flow を実際の会話で動かして、つまずく点を確認する。
+
+### B-030 backlog-implement: ブランチ名のスラッグをスクリプトで作る
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-22
+- 背景: `prepare` のブランチ名 `backlog/<ID>-<slug>` のスラッグは、LLM がタイトルから英語で考えて付けている。毎回表現がぶれ、日本語のタイトルでは訳し方も定まらない。
+- 概要: スラッグを `backlog.py` で作るか、ID だけにする（`backlog/B-024`）かを比べて決める。ID だけなら判断が不要で、一覧性は ID から引ける。
+
+### B-031 backlog-implement: 着手済みの項目を pick から除く
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-22
+- 背景: PR がマージされるまで main では項目が `ready` のままなので、マージ前に `backlog-implement` をもう一度実行すると同じ項目を選び、二重に実装して 2 つ目の PR を出してしまう。
+- 概要: `pick` で `git fetch origin` の後、`backlog/<ID>-*` のブランチがリモートにある項目を着手済みとみなして飛ばす（ブランチの有無で判定する方針は決定済み）。マージ後にブランチが削除されれば、main 側が `done` になるので問題ない。ローカルだけのブランチ（push 前）も見るか、判定を `backlog.py` のオプションにするか（B-028 の `--unblocked` と合わせる）は未決。
+
 ## done / dropped
 
 ### B-009 feature 追加: バックログ管理スキル
