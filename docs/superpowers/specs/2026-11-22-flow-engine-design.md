@@ -127,6 +127,13 @@ end    = true
 - **`gate`**: 任意（B-016）。`true` のステートは、人の承認を手順として求める。`render_step` が「ユーザーに確認し（`AskUserQuestion` などを使う）、却下されたら進めない」という案内と、`next` の `--approval "<ユーザーの回答>"` を足す。`gate` のステートから進むときは `flow next --approval` が必須（なければエラー）で、回答は時刻とともに `history` の `approval` に残り、`status` にも出る。`gate` でないステートに `--approval` を渡すとエラー。エンジンは回答の真偽を確かめられないので、強制ではなく記録である。終了ステートには書けない。
 - **未知のキー**は、すべて lint エラー（typo の検出のため）。
 
+### 6.2 start への引数（B-018）
+
+- 定義の `[args.<名前>]` で引数を宣言する。名前は ID と同じ形式。キーは `required`（真偽、既定 false）と `default`（文字列）。型は文字列のみ。`required = true` と `default` は併記できない（`arg-default-required`）。
+- `flow start --arg key=value` で渡す（繰り返せる。値に `=` を含んでよい）。未宣言のキー、必須の引数の欠落、同じキーの重複は、run を作る前にエラーにする。既定値を適用した結果を run の `args` に記録し、`status` に `Args:` として出す。
+- 手順の文面（`prompt`、`notes`、選択肢の `when`）の `{{arg.<名前>}}` を、`render_step` が run の値で置き換える。`run` の argv には展開しない（コマンドへ任意の文字列が入るのを避ける）。`dry-run` は置き換えず、書かれたまま出す。
+- lint は、ルート定義の文字列に書かれた未宣言の `{{arg.x}}` をエラー（`unknown-arg`）にする（`{ file = ... }` の中は検査しない。実行時にエラー）。引数名の形式違反は `arg-name`。部品（include される定義）に `[args]` は書けない（`include-args`）。部品の文面は、ルートの引数を参照できる。
+
 ### 6.1 include（定義の部品化、B-017）
 
 共通の手順（テストの実行、レビュー依頼など）を別ファイルに切り出し、複数の定義から使う。読み込み時に 1 枚の状態機械へ展開するので、run の仕組み（状態ファイル、遷移、`max_visits`）は変わらない。
@@ -162,7 +169,7 @@ exits = { ok = "review", fail = "fix" }   # 部品の終了ステートID = こ�
 
 | コマンド | 動作 |
 |---|---|
-| `flow start <定義>` | run を作成し、最初のステップを出力する。 |
+| `flow start <定義> [--arg key=value ...]` | run を作成し、最初のステップを出力する。`--arg` は §6.2 の引数（B-018）。 |
 | `flow next <run-id> --result <label>` | 判定を記録して遷移し、次のステップを出力する。 |
 | `flow status <run-id>` | 現在地・訪問回数・履歴を出力する。中断後の再開に使う。 |
 | `flow lint <定義> [--format text\|json\|github]` | 構造を検査する。エラーがあれば終了コード 1。`json` は `{"file", "issues": [{level, code, where, message}]}`、`github` は `::error file=<定義>::...` / `::warning ...`（Issue は行番号を持たないので file のみ）。`json` / `github` では、TOML を読めない場合も `read-error` の issue として出力する（B-008）。 |
