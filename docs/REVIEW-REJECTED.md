@@ -24,3 +24,9 @@
 - reuse / `started_ids` の `git` 呼び出しに `timeout` と `stdin=DEVNULL` がない: 却下: ローカルの ref を読むだけで、固まる経路がない。
 - efficiency・altitude: 指摘なし。
 - security-review: 指摘なし。
+
+## B-012
+
+- 自己レビュー / `shared/flow/flow.py` `export_skill`: プロンプトに `## ` で始まる行があると、出力の見出しと区別できない。却下: 手書きのプロンプトでは起きず、見出しの書式は判断で決定済み。起きたら `lint` で検出する別項目にする。
+- 自己レビュー / `export_skill`: `run` の `${DEF_DIR}` を展開せず、そのまま文面に出す。却下: 展開すると絶対パスが入り、移植できない。逆変換後の文面を人が直す前提で、`dropped information` にも `run` を載せている。
+- security-review: 指摘なし。
