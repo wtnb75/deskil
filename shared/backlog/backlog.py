@@ -311,7 +311,7 @@ def _lint_item(item: Item) -> list[Problem]:
     if state in ("todo", "ready"):
         required.append("優先度")
     elif state == "done":
-        required += ["完了", "PR"]
+        required.append("完了")
     if state in ("ready", "dropped"):
         required.append("判断")
     for key in required:
@@ -471,8 +471,6 @@ def archive_item(
     item = find_item(parse(text), item_id)
     if item.section != SECTION_ACTIVE:
         raise BacklogError(f"{item_id} is already archived")
-    if outcome == "done" and pr is None:
-        raise BacklogError("archiving an item as done needs --pr N")
     if outcome == "dropped":
         if pr is not None:
             raise BacklogError("--pr is only for done items")
@@ -484,7 +482,8 @@ def archive_item(
     text = _edit_field(text, item_id, "状態", outcome)
     if outcome == "done":
         text = _edit_field(text, item_id, "完了", today.isoformat())
-        text = _edit_field(text, item_id, "PR", f"#{pr}")
+        if pr is not None:
+            text = _edit_field(text, item_id, "PR", f"#{pr}")
 
     bl = parse(text)
     item = find_item(bl, item_id)
@@ -606,7 +605,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome.add_argument("--done", action="store_true")
     outcome.add_argument("--dropped", action="store_true")
     p_archive.add_argument(
-        "--pr", type=int, help="pull request number (required with --done)"
+        "--pr", type=int, help="pull request number (optional, only with --done)"
     )
     return parser
 

@@ -90,7 +90,7 @@ goto = "review"
 [[states.classify.choices]]
 label = "skip"
 when = "Every changed file is a document or the backlog"
-goto = "commit"
+goto = "finish_backlog"
 
 [states.review]
 prompt = """Review the change and list the findings (tool, file:line, finding). Do not decide on them and do not fix anything yet.
@@ -135,27 +135,29 @@ when = "Nothing was fixed"
 goto = "record_rejected"
 
 [states.record_rejected]
-prompt = """If you rejected any finding, make sure each one is in docs/REVIEW-REJECTED.md (the triage step writes them) and
-commit that file as its own commit, apart from the implementation and the backlog change.
+prompt = """If you rejected any finding, make sure each one is in docs/REVIEW-REJECTED.md (the triage step writes them).
+Do not commit it yet: it goes into the single commit of the commit step, with the implementation and the backlog change.
 The file starts with a heading and a short note on the format. Write it in the language the project's rules give for
 docs (see CLAUDE.md), one entry per finding: the item ID, the kind of review, file:line, the finding and the reason it
 was rejected.
 If you rejected nothing, there is nothing to do: do not touch the file."""
+goto = "finish_backlog"
+
+[states.finish_backlog]
+prompt = """Run `backlog.py archive <ID> --done`, then `backlog.py lint` (it must print nothing).
+Do not commit yet: the backlog change goes into the single commit of the commit step."""
 goto = "commit"
 
 [states.commit]
-prompt = """Commit the work in logical commits that follow the project's commit rules.
-Do not include the backlog change yet."""
+prompt = """Make everything on the branch one commit, following the project's commit rules: the implementation, the backlog
+change and docs/REVIEW-REJECTED.md (if you changed it). If the branch already has commits of your own (for example per-task
+commits from a plan), squash them first (`git reset --soft origin/<default branch>`, then commit).
+This is allowed because nothing has been pushed yet. Check with `git status --short` that nothing is left uncommitted."""
 goto = "open_pr"
 
 [states.open_pr]
 prompt = """Push the branch and create the pull request with `gh pr create`: the title names the item (ID and title),
 the body summarizes the change and the test results. Do not merge it. Note the PR number and URL."""
-goto = "finish_backlog"
-
-[states.finish_backlog]
-prompt = """Run `backlog.py archive <ID> --done --pr <N>` with the PR number, then `backlog.py lint` (it must print nothing).
-Commit the backlog change as its own commit and push it to the same branch."""
 goto = "back_to_default"
 
 [states.back_to_default]

@@ -81,7 +81,7 @@
 | `list [--all] [--status s,...]` | 項目を「状態 → 優先度 → ID」の順に、短い表で出す。既定は `todo` / `ready` のみ。ブロック中に印を付ける |
 | `show <ID>` | 1 項目だけを出す |
 | `set <ID> <キー> <値>` | 1 行の欄（状態・優先度・依存・完了・PR）を書き換える。欄がなければ、決まった位置に足す |
-| `archive <ID> --done\|--dropped [--pr N]` | 項目を `## done / dropped` へ移し、状態を更新する。`--done` は完了日（実行日）と PR を書く |
+| `archive <ID> --done\|--dropped [--pr N]` | 項目を `## done / dropped` へ移し、状態を更新する。`--done` は完了日（実行日）を書き、`--pr N` があれば PR も書く（PR は任意） |
 | `lint` | 書式を検査し、問題を行番号付きで出す。問題があれば終了コード 1 |
 
 `lint` の検査項目:
@@ -104,7 +104,7 @@
 
 **backlog-decide**: `pick`（ユーザーの指定、なければブロック中でない先頭の `todo`）→ `investigate`（`show` と、関連するコードの確認）→ `options`（案を 2〜3 個出し、トレードオフと推奨を示す。`brainstorming` スキルがあれば使う）→ `confirm`（ユーザーが選ぶ）→ 結果で分岐: `ready`（`判断` を書き、`set` で `ready` に）／`dropped`（理由を書き `archive --dropped`）／`defer`（判断せず、分かったことを `概要` の未決に追記）→ `lint` → `report`。
 
-**backlog-implement**: `pick`（ユーザーの指定、なければブロック中でない `ready` の優先度最上位。見つからなければ終了）→ `prepare`（作業ツリーがきれいか確認し、`git fetch origin` して、`origin/<デフォルトブランチ>` から `backlog/B-NNN-<slug>` のブランチを作る（B-026）。デフォルトブランチ名は `git symbolic-ref --short refs/remotes/origin/HEAD` で取り、取れなければ止めてユーザーに聞く。ローカルのデフォルトブランチは更新しない。worktree が使えれば使う）→ `plan`（小さな変更はその場で短く、大きければ計画書を `docs/superpowers/plans/` に。`writing-plans` があれば使う）→ `implement`（テストを先に書く方針。`test-driven-development` があれば使う）→ `verify`（テストと lint を実行。失敗なら `fix`、`max_visits = 2`、超えたら `report_fail` で PR を作らず終了）→ `finish_backlog`（`archive --done` で項目を移し、`lint`）→ `commit`（`CLAUDE.md` のコミット規約に従う）→ `open_pr`（push して `gh pr create`。マージはしない）→ `record_pr`（PR 番号を `set` で書いて追加コミット・push）→ `back_to_default`（デフォルトブランチへ `git switch` する。pull もブランチの削除もしない。B-027）→ `report`。
+**backlog-implement**: `pick`（ユーザーの指定、なければブロック中でない `ready` の優先度最上位。見つからなければ終了）→ `prepare`（作業ツリーがきれいか確認し、`git fetch origin` して、`origin/<デフォルトブランチ>` から `backlog/B-NNN-<slug>` のブランチを作る（B-026）。デフォルトブランチ名は `git symbolic-ref --short refs/remotes/origin/HEAD` で取り、取れなければ止めてユーザーに聞く。ローカルのデフォルトブランチは更新しない。worktree が使えれば使う）→ `plan`（小さな変更はその場で短く、大きければ計画書を `docs/superpowers/plans/` に。`writing-plans` があれば使う）→ `implement`（テストを先に書く方針。`test-driven-development` があれば使う）→ `verify`（テストと lint を実行。失敗なら `fix`、`max_visits = 2`、超えたら `report_fail` で PR を作らず終了）→ `finish_backlog`（`archive --done` で項目を移し、`lint`。PR 番号は書かない。commit はしない）→ `commit`（実装、バックログ、レビュー却下の記録を 1 コミットにまとめる。`CLAUDE.md` のコミット規約に従う）→ `open_pr`（push して `gh pr create`。マージはしない）→ `back_to_default`（デフォルトブランチへ `git switch` する。pull もブランチの削除もしない。B-027）→ `report`。
 
 ## 受け入れ条件
 

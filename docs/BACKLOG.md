@@ -35,7 +35,7 @@
 |---|---|
 | `優先度` | `P1`（高）/ `P2`（中、既定）/ `P3`（低）。`todo` / `ready` では必須。並べ替えはせず、欄で表す。 |
 | `依存` | 任意。先に `done` になっているべき項目の ID（カンマ区切り）。未完了、`dropped`、存在しない ID があると「ブロック中」で、実装には進めない。 |
-| `完了` / `PR` | `done` のときだけ書く（`dropped` には `PR` を書かない）。`backlog.py archive --done --pr N` が書く。 |
+| `完了` / `PR` | `done` のときだけ書く（`dropped` には `PR` を書かない）。`完了` は必須で、`backlog.py archive --done` が書く。`PR` は任意で、`--pr N` を付けたときだけ書く（`impl` は PR を作る前に `done` にするので付けない）。 |
 
 - 一覧・採番・書式検査・状態の変更は `shared/backlog/backlog.py`（`list` / `show` / `next-id` / `lint` / `set` / `archive`）で行う。並びは「状態（ready が先）→ 優先度 → ID」で、`list` が表示する。
 

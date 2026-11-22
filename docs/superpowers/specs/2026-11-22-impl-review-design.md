@@ -34,8 +34,8 @@
 
 ```
 verify --pass--> classify --> review --> [security_review] --> triage --fixed--> verify
-                                                                  \--not_fixed--> record_rejected --> commit
-verify の 2 回目の通過: classify は上限超過 → record_rejected → commit
+                                                                  \--not_fixed--> record_rejected --> finish_backlog --> commit
+verify の 2 回目の通過: classify は上限超過 → record_rejected → finish_backlog → commit
 ```
 
 `security-review` は返答の形式が独自で、結果を出したところで LLM が止まりやすい。そのため、次の 3 点で止まりにくくする。
@@ -56,7 +56,7 @@ verify の 2 回目の通過: classify は上限超過 → record_rejected → c
   - 採用したものを今回だけ直す。直した場合は `fixed`（→ `verify`）、直さなかった場合は `not_fixed`（→ `record_rejected`）。
   - 却下した指摘は、その場で `docs/REVIEW-REJECTED.md` に書く（commit はしない）。一覧が会話の記憶にしかない状態をなくし、圧縮や `report_fail` で失われないようにする。
 - **`verify`（既存）**: 直した後の失敗は、既存の `fix`（最大 2 回）で扱う。`fix` の回数はレビュー前の失敗と共有する。レビュー前に 2 回使っていた場合、レビューの直しで壊すと、直す機会なしに `report_fail` になる（許容する。PR は開かない）。
-- **却下の記録（`record_rejected`）**: `commit` の前に、却下した指摘があれば `docs/REVIEW-REJECTED.md` を、独立した commit にする。却下がなければ何もしない。
+- **却下の記録（`record_rejected`）**: 却下した指摘があれば `docs/REVIEW-REJECTED.md` に書かれていることを確かめる。commit はしない（実装、バックログと一緒に `commit` の 1 コミットに入る）。却下がなければ何もしない。
 
 ### 却下の記録（`docs/REVIEW-REJECTED.md`）
 
