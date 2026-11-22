@@ -796,6 +796,32 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
 
 
 # ---------------------------------------------------------------------------
+# graph
+# ---------------------------------------------------------------------------
+
+
+def graph_mermaid(defn_path: Path) -> str:
+    """Draw the state transitions of a definition as a Mermaid flowchart.
+
+    Node ids are prefixed with `n_` so a state named like a Mermaid keyword (`end`) is safe.
+    A goto or a choice is a solid arrow (a choice carries its label); on_exceed is dashed.
+    """
+    defn = load_definition(defn_path)
+    lines = ["flowchart TD", f"  start_node((start)) --> n_{defn.start}"]
+    for st in defn.states.values():
+        shape = f'(["{st.id}"])' if st.end else f'["{st.id}"]'
+        lines.append(f"  n_{st.id}{shape}")
+    for st in defn.states.values():
+        if st.goto is not None:
+            lines.append(f"  n_{st.id} --> n_{st.goto}")
+        for c in st.choices:
+            lines.append(f"  n_{st.id} -->|{c.label}| n_{c.goto}")
+        if st.on_exceed is not None:
+            lines.append(f"  n_{st.id} -.->|max {st.max_visits}| n_{st.on_exceed}")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # rename
 # ---------------------------------------------------------------------------
 
@@ -941,6 +967,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("definition", type=Path)
     p.add_argument("--results", help="comma-separated result labels to walk through")
 
+    p = sub.add_parser("graph", help="print the state transitions as a Mermaid flowchart")
+    p.add_argument("definition", type=Path)
+
     p = sub.add_parser("rename", help="rename a state and all references to it")
     p.add_argument("definition", type=Path)
     p.add_argument("old")
@@ -956,6 +985,9 @@ def main(argv: list[str] | None = None) -> int:
             for issue in issues:
                 print(format_issue(issue))
             return 1 if any(i.level == "error" for i in issues) else 0
+        if args.command == "graph":
+            sys.stdout.write(graph_mermaid(args.definition))
+            return 0
         if args.command == "rename":
             rename_state(args.definition, args.old, args.new)
             print(f"renamed {args.old} -> {args.new}")
