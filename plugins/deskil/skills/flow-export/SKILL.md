@@ -53,6 +53,7 @@ no longer enforced by anything:
 - `run`: the command is written in the text; the engine no longer runs it or
   shows its output.
 - `delegate`: the text names the subagent; the engine no longer sets it up.
+- `gate`: the text asks the user to confirm; the engine no longer records the approval.
 - `include`: the parts were merged into one text (ids may be prefixed).
 - Prompt files were copied into the text.
 
