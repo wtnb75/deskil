@@ -1593,6 +1593,89 @@ def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> st
 
 
 # ---------------------------------------------------------------------------
+# scenario test
+# ---------------------------------------------------------------------------
+
+SCENARIO_KEYS = {"name", "choices", "expect"}
+
+
+def _read_scenarios(path: Path) -> list[dict]:
+    """Read and validate the [[scenario]] tables of a scenario file."""
+    raw = parse_toml(path, read_source(path))
+    extra = set(raw) - {"scenario"}
+    items = raw.get("scenario")
+    if extra or not isinstance(items, list) or not items:
+        raise FlowError(
+            f"{path}: expected one or more [[scenario]] tables and nothing else"
+        )
+    for i, sc in enumerate(items, 1):
+        where = f"{path}: scenario #{i}"
+        if not isinstance(sc, dict):
+            raise FlowError(f"{where}: must be a table")
+        if set(sc) - SCENARIO_KEYS:
+            raise FlowError(f"{where}: unknown keys {sorted(set(sc) - SCENARIO_KEYS)}")
+        if not isinstance(sc.get("name"), str) or not sc["name"]:
+            raise FlowError(f"{where}: name must be a non-empty string")
+        for key in ("choices", "expect"):
+            v = sc.get(key)
+            if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+                raise FlowError(f"{where}: {key} must be a list of strings")
+    return items
+
+
+def _walk_scenario(defn: Definition, choices: list[str]) -> list[str]:
+    """Walk the definition from the start with the given results; return the states passed.
+
+    Mirrors a real run (max_visits / on_exceed apply) but never executes a state's command.
+    """
+    queue = list(choices)
+    visits = {defn.start: 1}
+    current = defn.start
+    path = [current]
+    for _ in range(DRY_RUN_MAX_STEPS):
+        st = defn.states[current]
+        if st.end:
+            break
+        if st.choices:
+            if not queue:
+                raise FlowError(f"results exhausted at {current}")
+            label = queue.pop(0)
+        else:
+            label = None
+        current = step_target(defn, visits, current, label)
+        visits[current] = visits.get(current, 0) + 1
+        path.append(current)
+    else:
+        raise FlowError(f"did not finish within {DRY_RUN_MAX_STEPS} steps")
+    if queue:
+        raise FlowError(f"results left over: {', '.join(queue)}")
+    return path
+
+
+def run_scenarios(defn_path: Path, scenario_path: Path) -> tuple[str, bool]:
+    """Check every scenario against the definition; return (report, all passed)."""
+    defn = load_definition(defn_path)
+    lines = []
+    ok = True
+    for sc in _read_scenarios(scenario_path):
+        try:
+            got = _walk_scenario(defn, sc["choices"])
+        except FlowError as e:
+            ok = False
+            lines.append(f"FAIL: {sc['name']}: {e}")
+            continue
+        if got == sc["expect"]:
+            lines.append(f"ok: {sc['name']}")
+        else:
+            ok = False
+            lines.append(
+                f"FAIL: {sc['name']}: expected {' -> '.join(sc['expect']) or '(none)'}, "
+                f"got {' -> '.join(got)}"
+            )
+    return "\n".join(lines) + "\n", ok
+
+
+# ---------------------------------------------------------------------------
 # graph
 # ---------------------------------------------------------------------------
 
@@ -1909,6 +1992,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--results", help="comma-separated result labels to walk through")
 
     p = sub.add_parser(
+        "test", help="check a definition against the scenarios in a TOML file"
+    )
+    p.add_argument("definition", type=Path)
+    p.add_argument("scenario", type=Path)
+
+    p = sub.add_parser(
         "graph", help="print the state transitions as a Mermaid flowchart"
     )
     p.add_argument("definition", type=Path)
@@ -1944,6 +2033,10 @@ def main(argv: list[str] | None = None) -> int:
                 issues = [Issue("error", "read-error", "(file)", str(e))]
             sys.stdout.write(format_lint(args.definition, issues, args.format))
             return 1 if any(i.level == "error" for i in issues) else 0
+        if args.command == "test":
+            report, ok = run_scenarios(args.definition, args.scenario)
+            sys.stdout.write(report)
+            return 0 if ok else 1
         if args.command == "graph":
             sys.stdout.write(graph_mermaid(args.definition))
             return 0
