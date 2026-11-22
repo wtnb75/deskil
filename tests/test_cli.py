@@ -154,3 +154,10 @@ def test_subprocess_smoke(flow, env, write_def, tmp_path):
     )
     assert res.returncode == 1
     assert "error[unknown-key]" in res.stdout
+
+
+def test_default_cmd_prefix_quotes_a_path_with_spaces(flow, env, capsys, monkeypatch):
+    monkeypatch.delenv("FLOW_CMD")
+    monkeypatch.setattr(sys, "argv", ["/opt/my p/flow.py"])
+    _, out = start(flow, env, capsys)
+    assert "  uv run '/opt/my p/flow.py' next " in out
