@@ -27,7 +27,7 @@ plugins/<name>/
 
 | Plugin | What it is |
 |---|---|
-| `deskil` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
+| `deskil` | Skills for writing, reviewing, debugging and converting to flow definitions (`flow-author`, `flow-review`, `flow-convert`). |
 | `deskil-dev` | Skills for the backlog workflow, each written as a flow: `add`, `prio`, `decide`, `impl`. |
 | `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
 | `feature-b` | Sample plugin that uses the shared script. |
