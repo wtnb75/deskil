@@ -657,6 +657,54 @@ def status_text(run_id: str, state_dir: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# dry run
+# ---------------------------------------------------------------------------
+
+DRY_RUN_ID = "dry-run"
+DRY_RUN_SEPARATOR = "\n---\n\n"
+DRY_RUN_MAX_STEPS = 1000
+
+
+def dry_run(defn_path: Path, results: list[str] | None, cmd: str = "flow") -> str:
+    """Show what a run would print, without creating any state.
+
+    Without results, every state is rendered in definition order. With results, the
+    flow is walked from the start state; steps without choices advance on their own.
+    """
+    defn = load_definition(defn_path)
+    if results is None:
+        return DRY_RUN_SEPARATOR.join(
+            render_step(defn, sid, DRY_RUN_ID, cmd) for sid in defn.states
+        )
+
+    queue = list(results)
+    visits = {defn.start: 1}
+    current = defn.start
+    steps = [render_step(defn, current, DRY_RUN_ID, cmd)]
+    note = ""
+    for _ in range(DRY_RUN_MAX_STEPS):
+        st = defn.states[current]
+        if st.end:
+            break
+        if st.choices:
+            if not queue:
+                note = f"(results exhausted at {current})"
+                break
+            label = queue.pop(0)
+        else:
+            label = None
+        current = step_target(defn, visits, current, label)
+        visits[current] = visits.get(current, 0) + 1
+        steps.append(render_step(defn, current, DRY_RUN_ID, cmd))
+    else:
+        raise FlowError(f"dry-run did not finish within {DRY_RUN_MAX_STEPS} steps")
+    if queue:
+        note = f"(results left over: {', '.join(queue)})"
+    out = DRY_RUN_SEPARATOR.join(steps)
+    return out + (f"\n{note}\n" if note else "")
+
+
+# ---------------------------------------------------------------------------
 # command line
 # ---------------------------------------------------------------------------
 
@@ -696,6 +744,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("lint", help="check a definition")
     p.add_argument("definition", type=Path)
+
+    p = sub.add_parser("dry-run", help="show the steps without creating a run")
+    p.add_argument("definition", type=Path)
+    p.add_argument("--results", help="comma-separated result labels to walk through")
     return parser
 
 
@@ -707,6 +759,12 @@ def main(argv: list[str] | None = None) -> int:
             for issue in issues:
                 print(format_issue(issue))
             return 1 if any(i.level == "error" for i in issues) else 0
+        if args.command == "dry-run":
+            results = None
+            if args.results is not None:
+                results = [r.strip() for r in args.results.split(",") if r.strip()]
+            sys.stdout.write(dry_run(args.definition, results, _default_cmd()))
+            return 0
         state_dir = _resolve_state_dir(args.state_dir)
         if args.command == "start":
             out = start_run(args.definition, state_dir, _default_cmd())
