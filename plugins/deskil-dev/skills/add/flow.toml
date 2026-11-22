@@ -29,7 +29,7 @@ goto = "lint"
 
 [states.write]
 run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "next-id"]
-prompt = """The command above is `backlog.py next-id`: its output is the id of the new item.
+prompt = """The command below is `backlog.py next-id`: its output is the id of the new item.
 If the step says the command was not executed, run `backlog.py next-id` yourself.
 Append a new item at the end of the `## todo / ready` section (before `## done / dropped`) with Edit,
 in the format shown at the top of docs/BACKLOG.md:
@@ -43,7 +43,7 @@ goto = "lint"
 
 [states.lint]
 run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
-prompt = """The command above is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+prompt = """The command below is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
 If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]

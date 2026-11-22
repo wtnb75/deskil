@@ -85,7 +85,7 @@ goto = "lint"
 
 [states.lint]
 run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
-prompt = """The command above is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+prompt = """The command below is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
 If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]

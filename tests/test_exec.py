@@ -343,7 +343,7 @@ def test_lint_accepts_def_dir(flow, tmp_path, write_def):
 def test_def_dir_is_expanded_before_running(flow, repo, state_dir):
     path = commit(repo, argv_def("${DEF_DIR}/x"))
     out = flow.start_run(path, state_dir)
-    assert str(repo / "x") in out
+    assert f"['{repo / 'x'}']" in out  # printed by the child: what it really received
     assert "Exit code: 0" in out
 
 
@@ -362,7 +362,7 @@ def test_def_dir_with_space_stays_one_argument(flow, tmp_path, state_dir):
 def test_multiple_def_dir_in_one_element(flow, repo, state_dir):
     path = commit(repo, argv_def("${DEF_DIR}:${DEF_DIR}"))
     out = flow.start_run(path, state_dir)
-    assert f"{repo}:{repo}" in out
+    assert f"['{repo}:{repo}']" in out  # printed by the child
 
 
 def test_other_variables_are_passed_through(flow, repo, state_dir):
@@ -380,7 +380,7 @@ def test_not_executed_shows_expanded_argv(flow, repo, state_dir):
     assert "${DEF_DIR}" not in out
 
 
-def test_command_differing_from_ref_is_decided_before_expansion(flow, repo, state_dir):
+def test_command_edited_in_worktree_is_not_executed_even_with_def_dir(flow, repo, state_dir):
     path = commit(repo, argv_def("${DEF_DIR}/a"))
     path.write_text(argv_def("${DEF_DIR}/b"), encoding="utf-8")
     out = flow.start_run(path, state_dir)

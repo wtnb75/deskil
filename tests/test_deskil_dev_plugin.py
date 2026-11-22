@@ -243,3 +243,11 @@ def test_run_commands_work_in_the_project(skill, state, args):
     assert res.returncode == 0, res.stdout + res.stderr
     if args == ["next-id"]:
         assert res.stdout.startswith("B-")
+
+
+@pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
+def test_prompt_points_at_the_command_below(skill, state, args):
+    # The step prints the prompt first and the command result after it.
+    prompt = flow_states(skill)[state]["prompt"]
+    assert "command above" not in prompt
+    assert "command below" in prompt
