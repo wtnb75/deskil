@@ -1,0 +1,17 @@
+{
+  "name": "deskil",
+  "owner": { "name": "Watanabe Takashi" },
+  "metadata": { "description": "deskil plugin marketplace" },
+  "plugins": [
+    {
+      "name": "feature-a",
+      "source": "./plugins/feature-a",
+      "description": "Sample plugin A (uses shared script via symlink)"
+    },
+    {
+      "name": "feature-b",
+      "source": "./plugins/feature-b",
+      "description": "Sample plugin B (uses shared script via symlink)"
+    }
+  ]
+}

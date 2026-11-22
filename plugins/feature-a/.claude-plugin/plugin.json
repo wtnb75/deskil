@@ -1,0 +1,6 @@
+{
+  "name": "feature-a",
+  "version": "0.1.0",
+  "description": "Sample plugin A",
+  "author": { "name": "Watanabe Takashi" }
+}
