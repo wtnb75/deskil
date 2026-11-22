@@ -84,7 +84,7 @@ end = true
 
 [states.report_none]
 prompt = """Tell the user that no item can be implemented now and why (nothing is ready, every ready item is blocked,
-or the named item is not ready). If a todo item is the candidate, suggest backlog-decide to make it ready."""
+or the named item is not ready). If a todo item is the candidate, suggest decide to make it ready."""
 end = true
 
 [states.report_fail]

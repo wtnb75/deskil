@@ -24,7 +24,7 @@ goto = "update_existing"
 
 [states.update_existing]
 prompt = """Add the new information to the existing item with Edit (for example, extend 背景 or 概要).
-Do not change its 状態 or 優先度 here: use backlog-prioritize or backlog-decide for that."""
+Do not change its 状態 or 優先度 here: use prio or decide for that."""
 goto = "lint"
 
 [states.write]

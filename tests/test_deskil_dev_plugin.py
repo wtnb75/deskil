@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 DEV = ROOT / "plugins" / "deskil-dev"
-SKILLS = ["backlog-add", "backlog-prioritize", "backlog-decide", "backlog-implement"]
+SKILLS = ["add", "prio", "decide", "impl"]
 PRESENT = [s for s in SKILLS if (DEV / "skills" / s).is_dir()]
 ALLOWED_TOOLS = (
     "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
@@ -75,8 +75,8 @@ def test_scripts_are_relative_symlinks_into_shared(script, target):
 
 
 def test_add_happy_and_duplicate_paths(tmp_path):
-    assert visited(dry_run("backlog-add", ["new", "ok"], tmp_path)) == ["check_dup", "write", "lint", "report"]
-    assert visited(dry_run("backlog-add", ["duplicate", "ok"], tmp_path)) == [
+    assert visited(dry_run("add", ["new", "ok"], tmp_path)) == ["check_dup", "write", "lint", "report"]
+    assert visited(dry_run("add", ["duplicate", "ok"], tmp_path)) == [
         "check_dup",
         "update_existing",
         "lint",
@@ -85,53 +85,53 @@ def test_add_happy_and_duplicate_paths(tmp_path):
 
 
 def test_add_lint_failures_end_in_report_fail(tmp_path):
-    out = dry_run("backlog-add", ["new", "errors", "errors", "errors"], tmp_path)
+    out = dry_run("add", ["new", "errors", "errors", "errors"], tmp_path)
     assert visited(out)[-1] == "report_fail"
     assert visited(out).count("fix") == 2
     assert out.endswith("Flow complete.\n")
 
 
 def test_prioritize_happy_path(tmp_path):
-    out = dry_run("backlog-prioritize", ["approved", "ok"], tmp_path)
+    out = dry_run("prio", ["approved", "ok"], tmp_path)
     assert visited(out) == ["survey", "propose", "confirm", "apply", "lint", "report"]
     assert out.endswith("Flow complete.\n")
 
 
 def test_prioritize_revision_limit_leaves_the_backlog_unchanged(tmp_path):
-    out = dry_run("backlog-prioritize", ["revise", "revise", "revise"], tmp_path)
+    out = dry_run("prio", ["revise", "revise", "revise"], tmp_path)
     assert visited(out)[-1] == "report_unchanged"
     assert "apply" not in visited(out)
 
 
 def test_prioritize_lint_failures_end_unchanged_report(tmp_path):
-    out = dry_run("backlog-prioritize", ["approved", "errors", "errors", "errors"], tmp_path)
+    out = dry_run("prio", ["approved", "errors", "errors", "errors"], tmp_path)
     assert visited(out)[-1] == "report_unchanged"
     assert visited(out).count("fix_prio") == 2
 
 
 def test_decide_paths(tmp_path):
     head = ["pick", "investigate", "options", "confirm"]
-    assert visited(dry_run("backlog-decide", ["found", "ready", "ok"], tmp_path)) == head + [
+    assert visited(dry_run("decide", ["found", "ready", "ok"], tmp_path)) == head + [
         "write_decision",
         "lint",
         "report",
     ]
-    assert visited(dry_run("backlog-decide", ["found", "dropped", "ok"], tmp_path)) == head + ["drop", "lint", "report"]
-    assert visited(dry_run("backlog-decide", ["found", "defer", "ok"], tmp_path)) == head + [
+    assert visited(dry_run("decide", ["found", "dropped", "ok"], tmp_path)) == head + ["drop", "lint", "report"]
+    assert visited(dry_run("decide", ["found", "defer", "ok"], tmp_path)) == head + [
         "note_open",
         "lint",
         "report",
     ]
-    assert visited(dry_run("backlog-decide", ["none"], tmp_path)) == ["pick", "report_none"]
+    assert visited(dry_run("decide", ["none"], tmp_path)) == ["pick", "report_none"]
 
 
 def test_decide_lint_failures_end_in_report_fail(tmp_path):
-    out = dry_run("backlog-decide", ["found", "ready", "errors", "errors", "errors"], tmp_path)
+    out = dry_run("decide", ["found", "ready", "errors", "errors", "errors"], tmp_path)
     assert visited(out)[-1] == "report_fail"
 
 
 def test_implement_happy_path_order(tmp_path):
-    out = dry_run("backlog-implement", ["found", "pass"], tmp_path)
+    out = dry_run("impl", ["found", "pass"], tmp_path)
     assert visited(out) == [
         "pick",
         "prepare",
@@ -147,14 +147,14 @@ def test_implement_happy_path_order(tmp_path):
 
 
 def test_implement_failure_limit_skips_the_pr(tmp_path):
-    out = dry_run("backlog-implement", ["found", "fail", "fail", "fail"], tmp_path)
+    out = dry_run("impl", ["found", "fail", "fail", "fail"], tmp_path)
     assert visited(out)[-1] == "report_fail"
     assert visited(out).count("fix") == 2
     assert "open_pr" not in visited(out)
 
 
 def test_implement_with_nothing_ready_stops_early(tmp_path):
-    assert visited(dry_run("backlog-implement", ["none"], tmp_path)) == ["pick", "report_none"]
+    assert visited(dry_run("impl", ["none"], tmp_path)) == ["pick", "report_none"]
 
 
 # --- skills (the ones that exist so far) -----------------------------------

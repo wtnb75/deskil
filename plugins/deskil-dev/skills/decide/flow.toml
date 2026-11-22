@@ -5,6 +5,7 @@ start = "pick"
 always = [
   "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format and the meaning of each state: follow it.",
   "A decision belongs to the user. Never move an item to ready or dropped before the user has chosen.",
+  "ready means an implementer can start right now: the approach is decided, nothing the user still has to answer is open, and no dependency is unfinished. A decision to not do the item now (later, or not in the first version) is never ready: it is defer (stays todo, the decision goes into 概要) or dropped.",
   "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",
 ]
 
@@ -35,7 +36,8 @@ goto = "options"
 
 [states.options]
 prompt = """One item: give the user 2 or 3 real options for how to do it (drop weak ones), each with what it trades off,
-and say which one you recommend and why. Include "drop the item" or "not decidable yet" when they are real answers.
+and say which one you recommend and why. Include "drop the item" and "not now / not decidable yet" when they are real answers.
+Offer ready only for an approach that can be implemented right now (see the notes).
 Batch: show one table with a row per item (ID, title, recommended outcome: ready / dropped / defer, the approach in
 one line, and the reason). Do not write anything to the backlog yet.
 If the superpowers:brainstorming skill is available, use it for this step; otherwise do it yourself."""
@@ -49,7 +51,7 @@ at least one item is dropped, otherwise `defer`."""
 
 [[states.confirm.choices]]
 label = "ready"
-when = "The user chose an approach to implement"
+when = "The user chose an approach that can be implemented right now"
 goto = "write_decision"
 
 [[states.confirm.choices]]
@@ -59,7 +61,7 @@ goto = "drop"
 
 [[states.confirm.choices]]
 label = "defer"
-when = "The user cannot decide yet (more is needed first)"
+when = "The item is not to be implemented now: the user cannot decide yet, or decided to do it later or not in the first version"
 goto = "note_open"
 
 [states.write_decision]
@@ -75,8 +77,10 @@ In a batch, also record the confirmed defer items as described in the next step.
 goto = "lint"
 
 [states.note_open]
-prompt = """For each deferred item, add what you learned and what is still open to the item's 概要 with Edit
-(keep it on one line). Do not change the item's 状態."""
+prompt = """For each deferred item, add what you learned, what was decided (for example "not in the first version")
+and what is still open to the item's 概要 with Edit (keep it on one line).
+Do not write 判断 and do not change the item's 状態: it stays todo. Lower the priority with
+`backlog.py set <ID> 優先度 P3` when the user wants it kept but not soon."""
 goto = "lint"
 
 [states.lint]
@@ -104,7 +108,7 @@ prompt = """Tell the user what was decided for each item (ready, dropped or stil
 end = true
 
 [states.report_none]
-prompt = "Tell the user that there is no todo item to decide now, and why. Suggest backlog-add or backlog-prioritize if that helps."
+prompt = "Tell the user that there is no todo item to decide now, and why. Suggest add or prio if that helps."
 end = true
 
 [states.report_fail]

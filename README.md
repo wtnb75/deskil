@@ -28,7 +28,7 @@ plugins/<name>/
 | Plugin | What it is |
 |---|---|
 | `deskil` | Skills for writing, reviewing and debugging flow definitions (`flow-author`, `flow-review`). |
-| `deskil-dev` | Skills for the backlog workflow, each written as a flow: `backlog-add`, `backlog-prioritize`, `backlog-decide`, `backlog-implement`. |
+| `deskil-dev` | Skills for the backlog workflow, each written as a flow: `add`, `prio`, `decide`, `impl`. |
 | `feature-a` | Sample plugin. Includes `review-loop`, a skill written as a flow. |
 | `feature-b` | Sample plugin that uses the shared script. |
 
@@ -59,10 +59,10 @@ Run state is stored in `.flow/runs/` of the working directory
 and optional dependencies). The `deskil-dev` skills drive it:
 
 ```
-backlog-add          write a new todo item
-backlog-prioritize   propose priorities, apply them after you approve
-backlog-decide       compare approaches, record the decision (todo -> ready, or dropped)
-backlog-implement    implement a ready item on a branch, open a pull request, mark it done
+add      write a new todo item
+prio     propose priorities, apply them after you approve
+decide   compare approaches, record the decision (todo -> ready, or dropped)
+impl     implement a ready item on a branch, open a pull request, mark it done
 ```
 
 The skills call `shared/backlog/backlog.py` (Python 3.11+, standard library only) so that ids, formats and moves are exact:
