@@ -1,0 +1,12 @@
+version: "3"
+
+tasks:
+  test:
+    desc: Run the test suite
+    cmds:
+      - uv run --with pytest pytest tests -q
+
+  lint:
+    desc: Lint the Python sources
+    cmds:
+      - uv run --with ruff ruff check .
