@@ -131,19 +131,80 @@ def test_decide_lint_failures_end_in_report_fail(tmp_path):
 
 
 def test_implement_happy_path_order(tmp_path):
-    out = dry_run("impl", ["found", "pass"], tmp_path)
+    out = dry_run("impl", ["found", "pass", "skip"], tmp_path)
     assert visited(out) == [
         "pick",
         "prepare",
         "plan",
         "implement",
         "verify",
+        "classify",
         "commit",
         "open_pr",
         "finish_backlog",
         "report",
     ]
     assert out.endswith("Flow complete.\n")
+
+
+TAIL = ["commit", "open_pr", "finish_backlog", "report"]
+HEAD = ["pick", "prepare", "plan", "implement", "verify", "classify"]
+
+
+def test_implement_review_without_security_or_fixes(tmp_path):
+    out = dry_run("impl", ["found", "pass", "review", "no_security", "not_fixed"], tmp_path)
+    assert visited(out) == [*HEAD, "review", "triage", "record_rejected", *TAIL]
+
+
+def test_implement_review_with_security(tmp_path):
+    out = dry_run("impl", ["found", "pass", "review", "security", "not_fixed"], tmp_path)
+    assert visited(out) == [*HEAD, "review", "security_review", "triage", "record_rejected", *TAIL]
+
+
+def test_implement_review_with_fixes_reviews_once(tmp_path):
+    out = dry_run("impl", ["found", "pass", "review", "no_security", "fixed", "pass"], tmp_path)
+    seen = visited(out)
+    assert seen.count("review") == 1 and seen.count("triage") == 1
+    assert seen[-5:] == ["record_rejected", *TAIL]
+    assert seen[: len(HEAD) + 3] == [*HEAD, "review", "triage", "verify"]
+
+
+def test_implement_review_failure_after_fix_uses_the_fix_limit(tmp_path):
+    out = dry_run("impl", ["found", "pass", "review", "no_security", "fixed", "fail", "fail", "fail"], tmp_path)
+    assert visited(out)[-1] == "report_fail"
+    assert "open_pr" not in visited(out)
+
+
+def test_classify_runs_git_status():
+    classify = flow_states("impl")["classify"]
+    assert classify["run"] == ["git", "status", "--porcelain"]
+    assert classify["max_visits"] == 1
+    assert classify["on_exceed"] == "record_rejected"
+
+
+def test_security_review_cannot_stall_the_flow():
+    state = flow_states("impl")["security_review"]
+    assert "choices" not in state and state["goto"] == "triage"
+    prompt = state["prompt"]
+    assert "security-review" in prompt
+    assert "not the end" in prompt and "do not ask" in prompt.lower() and "`next`" in prompt
+
+
+def test_review_prompt_names_the_reviews():
+    prompt = flow_states("impl")["review"]["prompt"]
+    for name in ("code-review", "simplify", "deskil:flow-review"):
+        assert name in prompt
+    assert "do not decide" in prompt.lower()
+
+
+def test_triage_prompt_fixes_once():
+    prompt = flow_states("impl")["triage"]["prompt"]
+    assert "once" in prompt and "out of scope" in prompt
+
+
+def test_record_rejected_prompt_covers_the_file():
+    prompt = flow_states("impl")["record_rejected"]["prompt"]
+    assert "docs/REVIEW-REJECTED.md" in prompt and "nothing" in prompt.lower()
 
 
 def prepare_step(tmp_path):
