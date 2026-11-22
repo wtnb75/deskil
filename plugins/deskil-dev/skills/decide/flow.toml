@@ -84,16 +84,18 @@ Do not write 判断 and do not change the item's 状態: it stays todo. Lower th
 goto = "lint"
 
 [states.lint]
-prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
+prompt = """The command below is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]
 label = "ok"
-when = "lint printed nothing"
+when = "lint exited 0 and printed nothing"
 goto = "report"
 
 [[states.lint.choices]]
 label = "errors"
-when = "lint printed one or more problems"
+when = "lint printed one or more problems or exited non-zero"
 goto = "fix"
 
 [states.fix]

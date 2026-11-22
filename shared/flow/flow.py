@@ -83,6 +83,9 @@ RUN_OPTION_KEYS = ("timeout", "cwd", "output_lines")
 DEFAULT_TIMEOUT = 300
 DEFAULT_OUTPUT_LINES = 100
 DEFAULT_REF = "main"
+# The only variable flow expands in a `run` argument: the directory of the definition file.
+DEF_DIR_VAR = "${DEF_DIR}"
+VARIABLE_RE = re.compile(r"\$\{[^}]*\}")
 CHOICE_KEYS = {"label", "when", "goto"}
 # Subagent type names, optionally namespaced by a plugin (e.g. "reviewer", "plugin:agent").
 AGENT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]*$")
@@ -90,6 +93,11 @@ AGENT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]*$")
 
 def _err(issues: list[Issue], code: str, where: str, message: str) -> None:
     issues.append(Issue("error", code, where, message))
+
+
+def expand_argv(argv: list[str], base_dir: Path) -> list[str]:
+    """Replace ${DEF_DIR} in each argument with the definition's directory; nothing else changes."""
+    return [a.replace(DEF_DIR_VAR, str(base_dir)) for a in argv]
 
 
 def _check_keys(obj: dict, allowed: set[str], where: str, issues: list[Issue]) -> None:
@@ -189,6 +197,14 @@ def _check_run(st: dict, where: str, issues: list[Issue]) -> None:
             isinstance(argv, list) and argv and all(isinstance(a, str) and a for a in argv)
         ):
             _err(issues, "type", f"{where}.run", "run must be a non-empty list of non-empty strings")
+        else:
+            for a in argv:
+                for var in VARIABLE_RE.findall(a):
+                    if var != DEF_DIR_VAR:
+                        issues.append(Issue(
+                            "warning", "unknown-variable", f"{where}.run",
+                            f"'{var}' is not expanded (only {DEF_DIR_VAR} is) and is passed as is",
+                        ))
     else:
         for key in RUN_OPTION_KEYS:
             if key in st:
@@ -831,7 +847,8 @@ def execute_state(
     limit = st.output_lines or DEFAULT_OUTPUT_LINES
     timeout = st.timeout or DEFAULT_TIMEOUT
     rec: dict = {
-        "state": st.id, "visit": visit, "argv": list(st.run), "executed": False,
+        "state": st.id, "visit": visit, "argv": expand_argv(list(st.run), defn.base_dir),
+        "executed": False,
         "reason": "", "output_lines": limit, "timeout": timeout, "error": None,
         "exit_code": None, "stdout": "", "stderr": "", "stdout_truncated": 0,
         "stderr_truncated": 0, "stdout_file": None, "stderr_file": None,
@@ -844,7 +861,9 @@ def execute_state(
         rec["reason"] = reason
         return rec
     rec["executed"] = True
-    argv = list(entry["run"])  # from the committed copy, not the (mutable) working file
+    # From the committed copy, not the (mutable) working file; ${DEF_DIR} is expanded last.
+    argv = expand_argv(list(entry["run"]), defn.base_dir)
+    rec["argv"] = argv
     cwd = defn.base_dir / entry["cwd"] if entry.get("cwd") else Path(run.cwd or Path.cwd())
     try:
         proc = subprocess.Popen(

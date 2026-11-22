@@ -8,7 +8,9 @@ always = [
 ]
 
 [states.survey]
-prompt = """Run `backlog.py list` to see the todo and ready items (blocked items are marked).
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "list"]
+prompt = """The command below is `backlog.py list`: it shows the todo and ready items (blocked items are marked).
+If the step says the command was not executed, run `backlog.py list` yourself.
 Read an item with `backlog.py show <ID>` only when you need its details to judge its priority."""
 goto = "propose"
 
@@ -43,16 +45,18 @@ Do not touch items that stay as they are."""
 goto = "lint"
 
 [states.lint]
-prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
+prompt = """The command below is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]
 label = "ok"
-when = "lint printed nothing"
+when = "lint exited 0 and printed nothing"
 goto = "report"
 
 [[states.lint.choices]]
 label = "errors"
-when = "lint printed one or more problems"
+when = "lint printed one or more problems or exited non-zero"
 goto = "fix_prio"
 
 [states.fix_prio]

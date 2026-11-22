@@ -317,3 +317,78 @@ def test_old_run_file_without_new_fields_still_loads(flow, state_dir):
     }))
     run = flow.load_run(state_dir, "old")
     assert run.commands == []
+
+
+# --- ${DEF_DIR} -------------------------------------------------------------
+
+
+def argv_def(*extra: str) -> str:
+    """A definition whose command prints its own arguments (after -c code)."""
+    code = "import sys; print(repr(sys.argv[1:]))"
+    return _def(json.dumps([sys.executable, "-c", code, *extra]))
+
+
+def test_lint_warns_on_unknown_variable(flow, tmp_path, write_def):
+    for bad in ("${DEFDIR}/x", "${HOME}"):
+        issues = flow.lint(write_def(tmp_path, _def(json.dumps(["echo", bad]))))
+        assert [i.code for i in issues if i.level == "warning"] == ["unknown-variable"]
+        assert not [i for i in issues if i.level == "error"]
+
+
+def test_lint_accepts_def_dir(flow, tmp_path, write_def):
+    issues = flow.lint(write_def(tmp_path, _def(json.dumps(["echo", "${DEF_DIR}/x"]))))
+    assert issues == []
+
+
+def test_def_dir_is_expanded_before_running(flow, repo, state_dir):
+    path = commit(repo, argv_def("${DEF_DIR}/x"))
+    out = flow.start_run(path, state_dir)
+    assert f"['{repo / 'x'}']" in out  # printed by the child: what it really received
+    assert "Exit code: 0" in out
+
+
+def test_def_dir_with_space_stays_one_argument(flow, tmp_path, state_dir):
+    repo = tmp_path / "a b"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "commit.gpgsign", "false")
+    path = commit(repo, argv_def("${DEF_DIR}/x", "y"))
+    out = flow.start_run(path, state_dir)
+    assert "['" in out and "a b/x', 'y']" in out
+
+
+def test_multiple_def_dir_in_one_element(flow, repo, state_dir):
+    path = commit(repo, argv_def("${DEF_DIR}:${DEF_DIR}"))
+    out = flow.start_run(path, state_dir)
+    assert f"['{repo}:{repo}']" in out  # printed by the child
+
+
+def test_other_variables_are_passed_through(flow, repo, state_dir):
+    path = commit(repo, argv_def("${HOME}"))
+    out = flow.start_run(path, state_dir)
+    assert "${HOME}" in out
+
+
+def test_not_executed_shows_expanded_argv(flow, repo, state_dir):
+    path = commit(repo, argv_def("${DEF_DIR}/x"))
+    path.write_text(argv_def("${DEF_DIR}/y"), encoding="utf-8")
+    out = flow.start_run(path, state_dir)
+    assert "not executed" in out.lower()
+    assert str(repo / "y") in out
+    assert "${DEF_DIR}" not in out
+
+
+def test_command_edited_in_worktree_is_not_executed_even_with_def_dir(flow, repo, state_dir):
+    path = commit(repo, argv_def("${DEF_DIR}/a"))
+    path.write_text(argv_def("${DEF_DIR}/b"), encoding="utf-8")
+    out = flow.start_run(path, state_dir)
+    assert "Exit code" not in out
+
+
+def test_run_record_holds_expanded_argv(flow, repo, state_dir):
+    path = commit(repo, argv_def("${DEF_DIR}/x"))
+    flow.start_run(path, state_dir)
+    data = json.loads(next(state_dir.glob("*.json")).read_text())
+    assert data["commands"][0]["argv"][-1] == str(repo / "x")
