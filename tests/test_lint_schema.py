@@ -127,3 +127,8 @@ def test_issue_where_points_at_state(flow, tmp_path):
 def test_non_table_input_does_not_raise(flow, tmp_path):
     issues = flow.lint_schema({"schema": 1, "start": "a", "states": 3}, tmp_path)
     assert "type" in {i.code for i in issues}
+
+
+def test_nul_in_file_path_does_not_raise(flow, tmp_path):
+    text = make(a='prompt = { file = "a\\u0000b" }\ngoto = "b"\n')
+    assert "file-missing" in {i.code for i in run(flow, text, tmp_path)}

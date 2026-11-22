@@ -138,3 +138,26 @@ def test_cli_rename(flow, p, capsys):
     assert "[states.step_two]" in p.read_text(encoding="utf-8")
     assert flow.main(["rename", str(p), "nope", "x"]) == 1
     assert "error:" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("header", ["[states . s2]", '[states."s2"]', "[ states.s2 ]"])
+def test_rename_handles_spaced_and_quoted_headers(flow, write_def, tmp_path, header):
+    text = DEF.replace("[states.s2]\nprompt = \"Loop\"", f'{header}\nprompt = "Loop"')
+    path = write_def(tmp_path, text)
+    flow.rename_state(path, "s2", "step_two")
+    out = path.read_text(encoding="utf-8")
+    assert 'goto = "step_two"' in out and "step_two" in out.split("prompt = \"Loop\"")[0].splitlines()[-1]
+    assert flow.lint(path) == []
+
+
+def test_rename_explains_when_the_header_cannot_be_found(flow, write_def, tmp_path):
+    text = (
+        'schema = 1\nstart = "a"\n[states]\n'
+        'a.prompt = "A"\na.goto = "b"\nb.prompt = "B"\nb.end = true\n'
+    )
+    path = write_def(tmp_path, text)
+    before = path.read_bytes()
+    with pytest.raises(flow.FlowError) as exc:
+        flow.rename_state(path, "b", "c")
+    assert "table header" in str(exc.value)
+    assert path.read_bytes() == before

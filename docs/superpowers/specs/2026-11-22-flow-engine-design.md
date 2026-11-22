@@ -178,6 +178,7 @@ After finishing the work, report the result with one of the following:
 - `{ file }` のファイルが存在しない、または定義ディレクトリの外
 - `notes` の参照先が `common` にない
 - **孤児ステート**: `start` から到達できない
+- **`on_exceed` だけの循環**（`on-exceed-cycle`）: `on_exceed` の遷移だけで輪になっている（上限を超えると実行時に抜けられなくなる）
 - **行き止まり / 無限ループ**: `start` から到達できるステートのうち、`end` へ到達できないものがある（`max_visits` の `on_exceed` 経路を含めて判定する）
 
 **警告**

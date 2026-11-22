@@ -100,3 +100,11 @@ def test_read_text_value_not_utf8_raises(flow, tmp_path):
 def test_format_issue(flow):
     issue = flow.Issue("error", "orphan", "states.x", "not reachable")
     assert flow.format_issue(issue) == "error[orphan] states.x: not reachable"
+
+
+def test_load_reads_the_toml_once(flow, full_def, monkeypatch):
+    calls = []
+    real = flow.read_toml
+    monkeypatch.setattr(flow, "read_toml", lambda p: calls.append(p) or real(p))
+    flow.load_definition(full_def)
+    assert len(calls) == 1

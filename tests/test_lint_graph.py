@@ -117,3 +117,57 @@ def test_lint_resolves_files_relative_to_definition(flow, write_def, tmp_path):
 def test_lint_returns_toml_error(flow, write_def, tmp_path):
     with pytest.raises(flow.FlowError):
         flow.lint(write_def(tmp_path, "start = \n"))
+
+
+def test_on_exceed_only_cycle_is_an_error(flow):
+    issues = graph(
+        flow,
+        defn(
+            {
+                "a": 'goto = "b"\n',
+                "b": 'goto = "e"\nmax_visits = 1\non_exceed = "c"\n',
+                "c": 'goto = "e"\nmax_visits = 1\non_exceed = "b"\n',
+                "e": END,
+            }
+        ),
+    )
+    cyc = [i for i in issues if i.code == "on-exceed-cycle"]
+    assert len(cyc) == 1 and cyc[0].level == "error" and "states.b" in cyc[0].where
+
+
+def test_on_exceed_self_loop_is_an_error(flow):
+    issues = graph(
+        flow,
+        defn({"a": 'goto = "b"\n', "b": 'goto = "e"\nmax_visits = 1\non_exceed = "b"\n', "e": END}),
+    )
+    assert "on-exceed-cycle" in codes(issues)
+
+
+def test_on_exceed_chain_without_cycle_is_fine(flow):
+    issues = graph(
+        flow,
+        defn(
+            {
+                "a": 'goto = "b"\n',
+                "b": 'goto = "e"\nmax_visits = 1\non_exceed = "c"\n',
+                "c": 'goto = "e"\nmax_visits = 1\non_exceed = "e"\n',
+                "e": END,
+            }
+        ),
+    )
+    assert "on-exceed-cycle" not in codes(issues)
+
+
+def test_cycle_through_a_normal_edge_is_not_an_on_exceed_cycle(flow):
+    issues = graph(
+        flow,
+        defn(
+            {
+                "a": 'goto = "b"\n',
+                "b": 'goto = "c"\nmax_visits = 2\non_exceed = "e"\n',
+                "c": 'goto = "b"\n',
+                "e": END,
+            }
+        ),
+    )
+    assert "on-exceed-cycle" not in codes(issues)

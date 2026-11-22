@@ -197,3 +197,41 @@ def test_status_text_shows_current_visits_history(flow, env):
     assert "Status: running" in text and "Current: w" in text
     assert "a=1" in text and "w=1" in text
     assert "1. a (result: again)" in text
+
+
+def test_unreadable_definition_is_a_flow_error(flow, env):
+    rid, _ = start(flow, env)
+    env[0].chmod(0)
+    try:
+        with pytest.raises(flow.FlowError) as exc:
+            nxt(flow, env, rid, "stop")
+    finally:
+        env[0].chmod(0o644)
+    assert "cannot read" in str(exc.value)
+
+
+def test_new_run_id_reserves_the_run_file(flow, tmp_path, monkeypatch):
+    first = flow._new_run_id(tmp_path)
+    assert (tmp_path / f"{first}.json").exists()
+    picks = iter([list(first[-3:]), list("zzz")])
+    monkeypatch.setattr(flow.random, "choices", lambda *a, **k: next(picks))
+    second = flow._new_run_id(tmp_path)
+    assert second != first
+    assert (tmp_path / f"{second}.json").exists()
+
+
+def test_failed_start_leaves_no_run_file(flow, env, monkeypatch):
+    def boom(*a, **k):
+        raise flow.FlowError("render failed")
+
+    monkeypatch.setattr(flow, "render_step", boom)
+    with pytest.raises(flow.FlowError):
+        flow.start_run(env[0], env[1], cmd="flow")
+    assert list(env[1].iterdir()) == []
+
+
+def test_save_run_does_not_depend_on_a_fixed_temp_name(flow, env):
+    rid, _ = start(flow, env)
+    (env[1] / f"{rid}.json.tmp").mkdir()
+    nxt(flow, env, rid, "again")
+    assert sorted(f.name for f in env[1].iterdir()) == [f"{rid}.json", f"{rid}.json.tmp"]

@@ -16,8 +16,10 @@ import json
 import os
 import random
 import re
+import shlex
 import string
 import sys
+import tempfile
 import tomllib
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -97,10 +99,16 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
         return
     rel = Path(value["file"])
     base = base_dir.resolve()
-    target = (base / rel).resolve()
-    if rel.is_absolute() or not target.is_relative_to(base):
+    try:
+        target = (base / rel).resolve()
+        outside = rel.is_absolute() or not target.is_relative_to(base)
+        is_file = not outside and target.is_file()
+    except ValueError:  # e.g. an embedded NUL character
+        _err(issues, "file-missing", where, f"invalid file path: {value['file']!r}")
+        return
+    if outside:
         _err(issues, "file-outside", where, f"'{value['file']}' is outside the definition directory")
-    elif not target.is_file():
+    elif not is_file:
         _err(issues, "file-missing", where, f"file not found: {value['file']}")
 
 
@@ -366,6 +374,23 @@ def lint_graph(raw: dict) -> list[Issue]:
                 Issue("warning", "single-choice", f"states.{sid}", "only one choice; use goto instead")
             )
 
+    # A cycle made only of on_exceed edges cannot terminate once every member is over its limit.
+    exceed_graph = {
+        sid: [states[sid]["on_exceed"]] if sid in reachable and "on_exceed" in states[sid] else []
+        for sid in states
+    }
+    for comp in _sccs(exceed_graph):
+        if len(comp) > 1 or comp[0] in exceed_graph[comp[0]]:
+            members = ", ".join(sorted(comp))
+            issues.append(
+                Issue(
+                    "error",
+                    "on-exceed-cycle",
+                    f"states.{sorted(comp)[0]}",
+                    f"on_exceed chain loops forever once the limits are reached ({members})",
+                )
+            )
+
     reach_graph = {sid: graph[sid] for sid in states if sid in reachable}
     for comp in _sccs(reach_graph):
         is_cycle = len(comp) > 1 or comp[0] in graph[comp[0]]
@@ -384,7 +409,11 @@ def lint_graph(raw: dict) -> list[Issue]:
 
 def lint(path: Path) -> list[Issue]:
     """Lint a definition file. Graph checks run only if the schema is clean."""
-    raw = read_toml(path)
+    return lint_raw(read_toml(path), path)
+
+
+def lint_raw(raw: dict, path: Path) -> list[Issue]:
+    """Lint an already parsed definition that was read from `path`."""
     issues = lint_schema(raw, path.resolve().parent)
     if not any(i.level == "error" for i in issues):
         issues += lint_graph(raw)
@@ -449,12 +478,12 @@ def read_text_value(value: Text, base_dir: Path) -> str:
 def load_definition(path: Path) -> Definition:
     """Lint a definition and build it. Any lint error raises FlowError."""
     path = Path(path).resolve()
-    issues = lint(path)
+    raw = read_toml(path)  # read once: the lint and the build must see the same text
+    issues = lint_raw(raw, path)
     errors = [i for i in issues if i.level == "error"]
     if errors:
         lines = "\n".join(format_issue(i) for i in errors)
         raise FlowError(f"{path}: definition has errors\n{lines}")
-    raw = read_toml(path)
     notes = raw.get("notes", {})
     states = {}
     for sid, st in raw["states"].items():
@@ -578,22 +607,35 @@ def save_run(state_dir: Path, run: Run) -> None:
     """Write the run atomically (temp file + rename)."""
     state_dir.mkdir(parents=True, exist_ok=True)
     path = _run_path(state_dir, run.run_id)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(dir=state_dir, prefix=f"{run.run_id}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def _file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as e:
+        raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
 
 
 def _new_run_id(state_dir: Path) -> str:
+    """Pick an unused run id and reserve it by creating its (empty) run file."""
+    state_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     while True:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
         run_id = f"{stamp}-{suffix}"
-        if not _run_path(state_dir, run_id).exists():
-            return run_id
+        try:
+            os.close(os.open(_run_path(state_dir, run_id), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+        except FileExistsError:
+            continue
+        return run_id
 
 
 def step_target(defn: Definition, visits: dict[str, int], current: str, label: str | None) -> str:
@@ -628,14 +670,19 @@ def start_run(defn_path: Path, state_dir: Path, cmd: str = "flow") -> str:
     run = Run(
         run_id=_new_run_id(state_dir),
         definition=str(defn.path),
-        definition_hash=_file_hash(defn.path),
+        definition_hash="",
         current=defn.start,
         visits={defn.start: 1},
         history=[],
         status="ended" if defn.states[defn.start].end else "running",
     )
-    out = render_step(defn, run.current, run.run_id, cmd)
-    save_run(state_dir, run)
+    try:
+        run.definition_hash = _file_hash(defn.path)
+        out = render_step(defn, run.current, run.run_id, cmd)
+        save_run(state_dir, run)
+    except BaseException:
+        _run_path(state_dir, run.run_id).unlink(missing_ok=True)  # release the reserved id
+        raise
     return out
 
 
@@ -779,7 +826,8 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
     Comments and multi-line strings (prompt bodies) are left untouched.
     """
     old_re = re.escape(old)
-    head_re = re.compile(rf"^(\s*\[\[?\s*states\.){old_re}(?=[.\]\s])")
+    # Accept `[states.b]`, `[states . b]` and `[states."b"]` (the quotes are kept).
+    head_re = re.compile(rf"""^(\s*\[\[?\s*states\s*\.\s*)(["']?){old_re}\2(?=[.\]\s])""")
     # A key must start the line, or follow `{` / `,` inside an inline table.
     key_re = re.compile(rf"""(?:^|(?<=[{{,]))(\s*)(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\4""")
     out: list[str] = []
@@ -792,7 +840,7 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
             continue
         if not line.lstrip().startswith("#"):
             code, comment = _split_comment(line)
-            code = head_re.sub(lambda m: m.group(1) + new, code)
+            code = head_re.sub(lambda m: f"{m.group(1)}{m.group(2)}{new}{m.group(2)}", code)
             code = key_re.sub(
                 lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}{new}{m.group(4)}", code
             )
@@ -825,7 +873,16 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
 
     before = errors_of(path)
     new_text = _rewrite_ids(path.read_bytes().decode("utf-8"), old, new)
-    tmp = path.with_name(path.name + ".rename.tmp")
+    try:
+        renamed = tomllib.loads(new_text).get("states")
+    except tomllib.TOMLDecodeError:
+        renamed = {new: None}  # a syntax error is reported by the lint below
+    if not isinstance(renamed, dict) or new not in renamed:
+        raise FlowError(
+            f"cannot find the table header of state '{old}' in a supported form "
+            f"([states.{old}]); {path} was not changed"
+        )
+    tmp =path.with_name(path.name + ".rename.tmp")
     tmp.write_bytes(new_text.encode("utf-8"))
     try:
         after = errors_of(tmp)
@@ -846,7 +903,7 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
 
 def _default_cmd() -> str:
     """The command prefix printed in 'next' hints; copy-pasteable as is."""
-    return os.environ.get("FLOW_CMD") or f"uv run {Path(sys.argv[0]).absolute()}"
+    return os.environ.get("FLOW_CMD") or f"uv run {shlex.quote(str(Path(sys.argv[0]).absolute()))}"
 
 
 def _resolve_state_dir(arg: Path | None) -> Path:
