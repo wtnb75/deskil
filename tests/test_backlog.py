@@ -160,6 +160,49 @@ def test_list_limit_applies_after_sorting_and_priority_filter(backlog):
     assert backlog.render_list(bl, None, limit=10).count("\n") == 2
 
 
+def test_list_exclude_drops_items_before_limit(backlog):
+    bl = backlog.parse(SAMPLE)
+    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
+    assert ids(backlog.render_list(bl, None, exclude={"B-001"})) == ["B-002", "B-003"]
+    assert ids(backlog.render_list(bl, None, exclude={"B-001"}, limit=1)) == ["B-002"]
+    assert ids(backlog.render_list(bl, None, exclude=set())) == ["B-001", "B-002", "B-003"]
+
+
+def test_started_ids_reads_only_remote_backlog_branches(backlog, tmp_path, monkeypatch):
+    import subprocess
+
+    def git(*args, cwd):
+        subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+    remote = tmp_path / "remote"
+    work = tmp_path / "work"
+    remote.mkdir()
+    git("init", "-q", "-b", "main", cwd=remote)
+    git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "x", cwd=remote)
+    git("branch", "backlog/B-031-some-slug", cwd=remote)
+    git("branch", "feature/other", cwd=remote)
+    subprocess.run(["git", "clone", "-q", str(remote), str(work)], check=True, capture_output=True)
+    git("fetch", "-q", "origin", cwd=work)
+    git("branch", "backlog/B-099-local-only", cwd=work)  # local-only branches are ignored
+    monkeypatch.chdir(work)
+    assert backlog.started_ids() == {"B-031"}
+
+
+def test_started_ids_outside_a_repo_raises(backlog, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    with pytest.raises(backlog.BacklogError, match="git"):
+        backlog.started_ids()
+
+
+def test_list_not_started_cli(backlog, tmp_path, monkeypatch, capsys):
+    path = write(tmp_path, SAMPLE)
+    monkeypatch.setattr(backlog, "started_ids", lambda: {"B-001"})
+    assert backlog.main(["--file", str(path), "list", "--not-started"]) == 0
+    out = capsys.readouterr().out
+    assert [line.split("  ")[0] for line in out.splitlines()] == ["B-002", "B-003"]
+
+
 def test_list_rejects_invalid_priority_and_limit(backlog):
     bl = backlog.parse(SAMPLE)
     with pytest.raises(backlog.BacklogError):

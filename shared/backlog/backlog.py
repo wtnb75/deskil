@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import date
@@ -165,9 +166,10 @@ def render_list(
     statuses: set[str] | None,
     priority: str | None = None,
     limit: int | None = None,
+    exclude: set[str] | None = None,
 ) -> str:
     """Render the sorted list. `priority` keeps that priority or higher (items without one are dropped);
-    `limit` keeps the first N rows after sorting and filtering."""
+    `exclude` drops the given item ids; `limit` keeps the first N rows after sorting and filtering."""
     if priority is not None and priority not in PRIORITIES:
         raise BacklogError(f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})")
     if limit is not None and limit < 1:
@@ -176,6 +178,8 @@ def render_list(
     if priority is not None:
         cutoff = PRIORITIES.index(priority)
         items = [i for i in items if i.get("優先度") in PRIORITIES and PRIORITIES.index(i.get("優先度")) <= cutoff]
+    if exclude:
+        items = [i for i in items if i.id not in exclude]
     if limit is not None:
         items = items[:limit]
     rows = []
@@ -188,6 +192,24 @@ def render_list(
                 row += f"  [blocked by {', '.join(blockers)}]"
         rows.append(row)
     return "\n".join(rows)
+
+
+def started_ids() -> set[str]:
+    """Ids of items that already have a `backlog/<ID>-*` branch on origin (as of the last `git fetch --prune`;
+    without `--prune`, refs of branches deleted on origin linger and keep their items hidden).
+    Local-only branches are ignored on purpose: leftovers of merged or abandoned work would hide items."""
+    try:
+        proc = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/backlog/"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", "") or str(exc)
+        raise BacklogError(f"cannot read remote branches with git: {detail.strip()}") from exc
+    found = (re.fullmatch(r"refs/remotes/origin/backlog/(B-\d+)(?:-.*)?", ref) for ref in proc.stdout.split())
+    return {m.group(1) for m in found if m}
 
 
 def render_show(bl: Backlog, item_id: str) -> str:
@@ -452,7 +474,12 @@ def build_parser() -> argparse.ArgumentParser:
     group.add_argument("--all", action="store_true", help="include done and dropped items")
     group.add_argument("--status", help="comma-separated states to show")
     p_list.add_argument("--priority", help="show only this priority or higher (P1 to P3); items without one are hidden")
-    p_list.add_argument("--limit", type=int, help="show only the first N items (after sorting and --priority)")
+    p_list.add_argument(
+        "--not-started",
+        action="store_true",
+        help="hide items that have a backlog/<ID>-* branch on origin (run `git fetch --prune origin` first)",
+    )
+    p_list.add_argument("--limit", type=int, help="show only the first N items (after sorting, --priority and --not-started)")
 
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
@@ -497,7 +524,8 @@ def run(args: argparse.Namespace) -> int:
             statuses = {s.strip() for s in args.status.split(",") if s.strip()}
         else:
             statuses = None
-        out = render_list(bl, statuses, args.priority, args.limit)
+        exclude = started_ids() if args.not_started else None
+        out = render_list(bl, statuses, args.priority, args.limit, exclude)
         if out:
             print(out)
     elif args.command == "show":
