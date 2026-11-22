@@ -200,3 +200,46 @@ def test_skill_runs_the_flow(skill):
 def test_flow_lints_clean(skill, tmp_path):
     res = run_flow("lint", DEV / "skills" / skill / "flow.toml", cwd=tmp_path)
     assert res.returncode == 0 and res.stdout == "", res.stdout + res.stderr
+
+
+# --- fixed commands run by the flow (${DEF_DIR}) ----------------------------
+
+BACKLOG_PY = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py"]
+RUN_STATES = [
+    ("add", "lint", ["lint"]),
+    ("add", "write", ["next-id"]),
+    ("decide", "lint", ["lint"]),
+    ("prio", "lint", ["lint"]),
+    ("prio", "survey", ["list"]),
+]
+
+
+def flow_states(skill: str) -> dict:
+    import tomllib
+
+    return tomllib.loads((DEV / "skills" / skill / "flow.toml").read_text(encoding="utf-8"))["states"]
+
+
+@pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
+def test_fixed_commands_are_run_by_the_flow(skill, state, args):
+    assert flow_states(skill)[state]["run"] == [*BACKLOG_PY, *args]
+
+
+@pytest.mark.parametrize(("skill", "state"), [("decide", "pick"), ("impl", "pick"), ("impl", "prepare"), ("impl", "verify")])
+def test_commands_not_in_scope_are_not_run(skill, state):
+    assert "run" not in flow_states(skill)[state]
+
+
+@pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
+def test_run_target_exists(skill, state, args):
+    target = flow_states(skill)[state]["run"][2].replace("${DEF_DIR}", str(DEV / "skills" / skill))
+    assert Path(target).resolve().is_file()
+
+
+@pytest.mark.parametrize(("skill", "state", "args"), RUN_STATES)
+def test_run_commands_work_in_the_project(skill, state, args):
+    argv = [a.replace("${DEF_DIR}", str(DEV / "skills" / skill)) for a in flow_states(skill)[state]["run"]]
+    res = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
+    assert res.returncode == 0, res.stdout + res.stderr
+    if args == ["next-id"]:
+        assert res.stdout.startswith("B-")

@@ -28,7 +28,9 @@ Do not change its 状態 or 優先度 here: use prio or decide for that."""
 goto = "lint"
 
 [states.write]
-prompt = """Run `backlog.py next-id`.
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "next-id"]
+prompt = """The command above is `backlog.py next-id`: its output is the id of the new item.
+If the step says the command was not executed, run `backlog.py next-id` yourself.
 Append a new item at the end of the `## todo / ready` section (before `## done / dropped`) with Edit,
 in the format shown at the top of docs/BACKLOG.md:
 - 状態: todo
@@ -40,16 +42,18 @@ Add 依存 only when the item cannot start before another item is done."""
 goto = "lint"
 
 [states.lint]
-prompt = "Run `backlog.py lint`. No output means the backlog is clean."
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
+prompt = """The command above is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]
 label = "ok"
-when = "lint printed nothing"
+when = "lint exited 0 and printed nothing"
 goto = "report"
 
 [[states.lint.choices]]
 label = "errors"
-when = "lint printed one or more problems"
+when = "lint printed one or more problems or exited non-zero"
 goto = "fix"
 
 [states.fix]
