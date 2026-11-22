@@ -14,6 +14,7 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 STATES = ("todo", "ready", "done", "dropped")
@@ -181,6 +182,140 @@ def render_show(bl: Backlog, item_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# lint
+# ---------------------------------------------------------------------------
+
+REQUIRED_KEYS = ("状態", "追加", "背景", "概要")
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DEPENDENCY_RE = re.compile(r"^B-\d{3,}(\s*,\s*B-\d{3,})*$")
+PR_RE = re.compile(r"^#\d+$")
+
+
+def _valid_date(value: str) -> bool:
+    if not DATE_RE.match(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _field_line(item: Item, key: str) -> int:
+    """1-based line of the first `key` field, or of the heading when the field is absent."""
+    for k, _, no in item.fields:
+        if k == key:
+            return no + 1
+    return item.start + 1
+
+
+def _lint_item(item: Item) -> list[Problem]:
+    problems: list[Problem] = []
+    heading = item.start + 1
+
+    seen: set[str] = set()
+    for key, _, no in item.fields:
+        if key in seen:
+            problems.append(Problem(no + 1, f"{item.id}: duplicate field {key}"))
+        seen.add(key)
+
+    def missing(key: str) -> bool:
+        return not (item.get(key) or "").strip()
+
+    def invalid(key: str, ok: bool) -> None:
+        if not ok:
+            problems.append(Problem(_field_line(item, key), f"{item.id}: invalid {key} {item.get(key)!r}"))
+
+    required = list(REQUIRED_KEYS)
+    state = item.get("状態")
+    if state in ("todo", "ready"):
+        required.append("優先度")
+    elif state == "done":
+        required += ["完了", "PR"]
+    if state in ("ready", "dropped"):
+        required.append("判断")
+    for key in required:
+        if missing(key):
+            problems.append(Problem(heading, f"{item.id}: missing {key}"))
+
+    if not missing("状態"):
+        invalid("状態", state in STATES)
+    if not missing("優先度"):
+        invalid("優先度", item.get("優先度") in PRIORITIES)
+    for key in ("追加", "完了"):
+        if not missing(key):
+            invalid(key, _valid_date(item.get(key) or ""))
+    if not missing("依存"):
+        invalid("依存", bool(DEPENDENCY_RE.match(item.get("依存") or "")))
+    if not missing("PR"):
+        invalid("PR", bool(PR_RE.match(item.get("PR") or "")))
+    if state == "dropped" and item.get("PR") is not None:
+        problems.append(Problem(_field_line(item, "PR"), f"{item.id}: PR must not be set on a dropped item"))
+
+    expected = {"todo": SECTION_ACTIVE, "ready": SECTION_ACTIVE, "done": SECTION_ARCHIVE, "dropped": SECTION_ARCHIVE}
+    if state in expected and item.section != expected[state]:
+        problems.append(
+            Problem(_field_line(item, "状態"), f"{item.id}: a {state} item belongs in the '{expected[state]}' section")
+        )
+    return problems
+
+
+def _find_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
+    """Return each dependency cycle once, as a path that starts and ends at its lowest id."""
+    cycles: list[list[str]] = []
+    reported: set[frozenset[str]] = set()
+    visited: set[str] = set()
+
+    def walk(node: str, stack: list[str]) -> None:
+        visited.add(node)
+        stack.append(node)
+        for nxt in graph[node]:
+            if nxt in stack:
+                members = stack[stack.index(nxt) :]
+                if frozenset(members) not in reported:
+                    reported.add(frozenset(members))
+                    start = members.index(min(members))
+                    rotated = members[start:] + members[:start]
+                    cycles.append(rotated + [rotated[0]])
+            elif nxt not in visited:
+                walk(nxt, stack)
+        stack.pop()
+
+    for node in sorted(graph):
+        if node not in visited:
+            walk(node, [])
+    return cycles
+
+
+def lint(bl: Backlog) -> list[Problem]:
+    """Check the backlog format and return the problems, ordered by line."""
+    problems = list(bl.problems)
+    first: dict[str, Item] = {}
+    for item in bl.items:
+        if item.id in first:
+            problems.append(Problem(item.start + 1, f"duplicate item id {item.id}"))
+        else:
+            first[item.id] = item
+        problems += _lint_item(item)
+
+    graph: dict[str, list[str]] = {}
+    for item in first.values():
+        deps: list[str] = []
+        if DEPENDENCY_RE.match(item.get("依存") or ""):
+            for dep in dependencies(item):
+                if dep in first:
+                    deps.append(dep)
+                else:
+                    problems.append(Problem(_field_line(item, "依存"), f"{item.id}: unknown dependency {dep}"))
+        graph[item.id] = deps
+    for cycle in _find_cycles(graph):
+        problems.append(
+            Problem(_field_line(first[cycle[0]], "依存"), f"{cycle[0]}: dependency cycle {' -> '.join(cycle)}")
+        )
+    return sorted(problems, key=lambda p: p.line)
+
+
+# ---------------------------------------------------------------------------
 # command line
 # ---------------------------------------------------------------------------
 
@@ -207,6 +342,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
+
+    sub.add_parser("lint", help="check the backlog format (exit 1 when there are problems)")
     return parser
 
 
@@ -227,6 +364,11 @@ def run(args: argparse.Namespace) -> int:
             print(out)
     elif args.command == "show":
         print(render_show(bl, args.id))
+    elif args.command == "lint":
+        problems = lint(bl)
+        for problem in problems:
+            print(f"{args.file}:{problem.line}: {problem.message}")
+        return 1 if problems else 0
     return 0
 
 
