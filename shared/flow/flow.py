@@ -70,9 +70,12 @@ LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 TOP_KEYS = {"schema", "start", "notes", "states"}
 NOTES_KEYS = {"always", "common"}
-STATE_KEYS = {"prompt", "notes", "goto", "choices", "end", "max_visits", "on_exceed"}
+STATE_KEYS = {
+    "prompt", "notes", "goto", "choices", "end", "max_visits", "on_exceed", "delegate",
+}
 CHOICE_KEYS = {"label", "when", "goto"}
-RESERVED_KEYS = {"delegate"}  # reserved for step delegation; not supported yet
+# Subagent type names, optionally namespaced by a plugin (e.g. "reviewer", "plugin:agent").
+AGENT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:-]*$")
 
 
 def _err(issues: list[Issue], code: str, where: str, message: str) -> None:
@@ -81,9 +84,7 @@ def _err(issues: list[Issue], code: str, where: str, message: str) -> None:
 
 def _check_keys(obj: dict, allowed: set[str], where: str, issues: list[Issue]) -> None:
     for key in obj:
-        if key in RESERVED_KEYS:
-            _err(issues, "reserved-key", where, f"'{key}' is reserved and not supported yet")
-        elif key not in allowed:
+        if key not in allowed:
             _err(issues, "unknown-key", where, f"unknown key '{key}'")
 
 
@@ -193,17 +194,27 @@ def _check_state(
     is_end = st.get("end") is True
     if "end" in st and not isinstance(st["end"], bool):
         _err(issues, "type", f"{where}.end", "end must be true or false")
-    if is_end and any(k in st for k in ("goto", "choices", "max_visits", "on_exceed")):
+    if is_end and any(k in st for k in ("goto", "choices", "max_visits", "on_exceed", "delegate")):
         _err(
             issues,
             "end-with-transition",
             where,
-            "an end state cannot have goto/choices/max_visits/on_exceed",
+            "an end state cannot have goto/choices/max_visits/on_exceed/delegate",
         )
     else:
         count = sum(1 for k in ("goto", "choices") if k in st) + (1 if is_end else 0)
         if count != 1:
             _err(issues, "transition-count", where, "exactly one of goto / choices / end is required")
+
+    if "delegate" in st:
+        agent = st["delegate"]
+        if not isinstance(agent, str) or not AGENT_RE.match(agent):
+            _err(
+                issues,
+                "type",
+                f"{where}.delegate",
+                f"delegate must be an agent name matching {AGENT_RE.pattern}",
+            )
 
     if "goto" in st:
         _check_target(st["goto"], f"{where}.goto", state_ids, issues)
@@ -408,6 +419,7 @@ class State:
     end: bool
     max_visits: int | None
     on_exceed: str | None
+    delegate: str | None = None
 
 
 @dataclass(frozen=True)
@@ -457,6 +469,7 @@ def load_definition(path: Path) -> Definition:
             end=st.get("end") is True,
             max_visits=st.get("max_visits"),
             on_exceed=st.get("on_exceed"),
+            delegate=st.get("delegate"),
         )
     return Definition(
         path=path,
@@ -485,6 +498,14 @@ def render_step(defn: Definition, state_id: str, run_id: str, cmd: str = "flow")
             notes.append(text)
     if notes:
         sections.append("Notes:\n" + "\n".join(f"- {n}" for n in notes))
+
+    if st.delegate:
+        sections.append(
+            f"Delegate: hand this step to the subagent `{st.delegate}` "
+            f"(Agent tool, subagent_type = {st.delegate}). Give it this whole step text. "
+            "It does the work, runs the command shown below, "
+            "and returns that command's output to you. Continue from that output."
+        )
 
     if st.end:
         sections.append("Flow complete.")

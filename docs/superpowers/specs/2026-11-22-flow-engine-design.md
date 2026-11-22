@@ -24,7 +24,7 @@ Claude Code の skill の多くは、手順を文章で書いた手順書にな�
 
 ### 非ゴール（初版ではやらない。詳細は `docs/BACKLOG.md`）
 
-- ステップ単位のサブエージェント委譲（B-001）。ただし `delegate` キーは予約し、使うと linter がエラーにする。
+- ステップ単位のサブエージェント委譲（B-001。初版後に実装済み。§6 の `delegate`）。
 - MCP サーバー化（B-002）。ただしロジックはライブラリとして呼べる構造にしておく。
 - スクリプトによる機械判定ステップ（B-003。初版には含めないと決定済み）。
 - Windows 対応（B-004）。
@@ -122,7 +122,7 @@ end    = true
   - `[[states.<id>.choices]]` の並び（`label` / `when` / `goto`）
   - `end = true`（終了）
 - **`max_visits`**: そのステートに入れる回数の上限。上限に達した後に入ろうとしたとき、入らずに `on_exceed` のステートへ移る。`max_visits` を書いたら `on_exceed` も必須。
-- **予約キー**: `delegate`。使うと lint エラー（未対応）。
+- **`delegate`**: 任意。そのステートの作業を任せるサブエージェントの名前（文字列）。`render_step` が、ステップ全文を委譲先に渡し、委譲先が `next` コマンドまで実行して出力を返すよう案内する。モデルとツールは `agents/` の定義側に持たせる。終了ステートには書けない。
 - **未知のキー**は、すべて lint エラー（typo の検出のため）。
 
 ## 7. 状態ファイル
@@ -167,7 +167,7 @@ After finishing the work, report the result with one of the following:
 
 **エラー**（終了コード 1）
 
-- `schema` 欠落・未対応、`start` 欠落、未知のキー、予約キー（`delegate`）の使用
+- `schema` 欠落・未対応、`start` 欠落、未知のキー、`delegate` がエージェント名の形式でない、または終了ステートにある
 - ID の形式違反、遷移先（`goto` / `on_exceed` / `start`）が存在しない
 - `goto` / `choices` / `end` が 0 個、または 2 個以上
 - `end` のステートに遷移（`goto` / `choices` / `max_visits` / `on_exceed`）がある

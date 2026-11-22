@@ -44,7 +44,9 @@ CASES = [
     ("unknown-top-key", make(top=TOP + "foo = 1\n"), "unknown-key"),
     ("unknown-state-key", make(a=A + "bogus = 1\n"), "unknown-key"),
     ("unknown-choice-key", make(a=A.replace('goto = "b"\n', "") + choice() + "z = 1\n"), "unknown-key"),
-    ("reserved-key", make(a=A + 'delegate = "x"\n'), "reserved-key"),
+    ("delegate-not-a-string", make(a=A + "delegate = 1\n"), "type"),
+    ("delegate-bad-name", make(a=A + 'delegate = "my agent"\n'), "type"),
+    ("delegate-on-end", make(b=B + 'delegate = "x"\n'), "end-with-transition"),
     ("notes-not-table", make(top=TOP + "notes = 1\n"), "type"),
     ("state-notes-not-list", make(a=A + 'notes = "x"\n'), "type"),
     ("max-visits-zero", make(a=A + 'max_visits = 0\non_exceed = "b"\n'), "type"),
@@ -105,10 +107,9 @@ def test_schema_errors(flow, tmp_path, text, code):
     assert all(i.level == "error" for i in issues)
 
 
-def test_reserved_key_is_not_reported_as_unknown(flow, tmp_path):
-    issues = run(flow, make(a=A + 'delegate = "x"\n'), tmp_path)
-    assert "reserved-key" in {i.code for i in issues}
-    assert "unknown-key" not in {i.code for i in issues}
+@pytest.mark.parametrize("name", ["reviewer", "code-reviewer", "plugin:agent", "a_b.c"])
+def test_delegate_is_accepted(flow, tmp_path, name):
+    assert run(flow, make(a=A + f'delegate = "{name}"\n'), tmp_path) == []
 
 
 @pytest.mark.parametrize("path", ["../x.md", "/etc/passwd"])
