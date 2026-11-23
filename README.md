@@ -44,7 +44,7 @@ uv run flow.py lint <flow.toml> [--format text|json|github]  # find orphans, dea
 uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
 uv run flow.py test <flow.toml> <scenarios.toml>      # check [[scenario]] name/choices/expect against the flow
 uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
-uv run flow.py rename <flow.toml> <old> <new>         # rename a state everywhere
+uv run flow.py rename <flow.toml> <old> <new> [--allow-end]  # rename a state in this file; any `end = true` state needs --allow-end (the tool cannot tell a part from a root, and includers' `exits` keys are not updated)
 uv run flow.py new <flow.toml>                        # write a template definition (never overwrites)
 uv run flow.py fmt <flow.toml> [--check]              # sort keys, normalise layout, keep comments
 uv run flow.py runs                                   # list runs (id, status, updated, definition)

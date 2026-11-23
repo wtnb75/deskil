@@ -48,7 +48,7 @@ def test_rename_updates_all_references(flow, p):
 
 
 def test_rename_on_exceed_start_and_choice_headers(flow, p):
-    flow.rename_state(p, "s3", "final")
+    flow.rename_state(p, "s3", "final", allow_end=True)
     flow.rename_state(p, "s1", "first")
     text = p.read_text(encoding="utf-8")
     assert 'on_exceed = "final"' in text
@@ -76,7 +76,7 @@ def test_rename_ignores_one_line_strings_and_trailing_comments(
         '[states.b]\nprompt = "B"\nend = true\n'
     )
     path = write_def(tmp_path, text)
-    flow.rename_state(path, "b", "bee")
+    flow.rename_state(path, "b", "bee", allow_end=True)
     out = path.read_text(encoding="utf-8")
     assert "prompt = 'Set goto = \"b\" in the config'" in out
     assert 'goto = "bee"  # was goto = "b"' in out
@@ -92,7 +92,7 @@ def test_rename_handles_inline_tables(flow, write_def, tmp_path):
         '[states.c]\nprompt = "C"\nend = true\n'
     )
     path = write_def(tmp_path, text)
-    flow.rename_state(path, "b", "bee")
+    flow.rename_state(path, "b", "bee", allow_end=True)
     assert 'goto = "bee" }' in path.read_text(encoding="utf-8")
     assert flow.lint(path) == []
 
@@ -128,10 +128,27 @@ def test_rename_rolls_back_when_lint_regresses(flow, write_def, tmp_path):
     path = write_def(tmp_path, text)
     before = path.read_bytes()
     with pytest.raises(flow.FlowError) as exc:
-        flow.rename_state(path, "b", "c")
+        flow.rename_state(path, "b", "c", allow_end=True)
     assert "missing-target" in str(exc.value)
     assert path.read_bytes() == before
     assert sorted(f.name for f in tmp_path.iterdir()) == ["flow.toml"]
+
+
+def test_rename_refuses_an_end_state_unless_allowed(flow, write_def, tmp_path, capsys):
+    path = write_def(tmp_path, PART)
+    before = path.read_bytes()
+    with pytest.raises(flow.FlowError) as exc:
+        flow.rename_state(path, "ok", "done")
+    assert "exits" in str(exc.value) and "--allow-end" in str(exc.value)
+    # an invalid new id is reported before the end-state hint
+    with pytest.raises(flow.FlowError, match="invalid state id"):
+        flow.rename_state(path, "ok", "bad id")
+    assert path.read_bytes() == before
+    assert flow.main(["rename", str(path), "ok", "done"]) == 1
+    assert "--allow-end" in capsys.readouterr().err
+    assert path.read_bytes() == before
+    assert flow.main(["rename", str(path), "ok", "done", "--allow-end"]) == 0
+    assert "[states.done]" in path.read_text(encoding="utf-8")
 
 
 def test_cli_rename(flow, p, capsys):
@@ -163,7 +180,7 @@ def test_rename_explains_when_the_header_cannot_be_found(flow, write_def, tmp_pa
     path = write_def(tmp_path, text)
     before = path.read_bytes()
     with pytest.raises(flow.FlowError) as exc:
-        flow.rename_state(path, "b", "c")
+        flow.rename_state(path, "b", "c", allow_end=True)
     assert "table header" in str(exc.value)
     assert path.read_bytes() == before
 
@@ -194,7 +211,7 @@ def test_rename_updates_exits_values(flow, write_def, tmp_path, form):
     )
     path = write_def(tmp_path, text)
     assert flow.lint(path) == []
-    flow.rename_state(path, "c", "done")
+    flow.rename_state(path, "c", "done", allow_end=True)
     out = path.read_text(encoding="utf-8")
     assert out.count('"done"') == 2 and '"c"' not in out
     assert "[states.done]" in out
@@ -210,7 +227,7 @@ def test_rename_exits_leaves_other_values_and_keys(flow, write_def, tmp_path):
         '[states.d]\nprompt = "D"\nend = true\n'
     )
     path = write_def(tmp_path, text)
-    flow.rename_state(path, "c", "ok")  # new id equals an exits key
+    flow.rename_state(path, "c", "ok", allow_end=True)  # new id equals an exits key
     assert 'exits = { ok = "ok", fail = "d" }' in path.read_text(encoding="utf-8")
     assert flow.lint(path) == []
 

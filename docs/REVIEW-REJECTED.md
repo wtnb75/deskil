@@ -87,6 +87,21 @@
 - 指摘: `lint --against` が「ID が同じでタイトルが違う」ことを衝突の目印にしているため、既存項目のタイトルを直しただけでも指摘される。merge-base から見て「このブランチで追加した ID が origin にもある」を判定する案。
 - 却下の理由: 項目の判断は「別ブランチの項目と ID が重なっていないか」の検査で、タイトルの比較はその近似として許容する。タイトルを直すのは稀で、指摘されても確認すれば済む。merge-base 方式は別項目として扱う。
 
+## B-053 / code-review / `shared/flow/flow.py:2513`
+
+- 指摘: 終了ステートの rename を一律に拒否するため、includer のない root 定義の終了ステートも `--allow-end` なしでは rename できない。部品かどうかを includer の探索で判定し、部品のときだけ拒否する案。
+- 却下の理由: 項目の判断が「includer を探して書き換える案は、探索の範囲が未決なので採らない」と決めている。部品かどうかはファイル単体では分からないので、一律に拒否して `--allow-end` で通す形が判断の範囲。README と SKILL.md に理由を書いた。
+
+## B-053 / code-review / `shared/flow/flow.py:2513`
+
+- 指摘: includer を探して `exits` のキーを直す、または rename 後に includer を検証する仕組みがない。
+- 却下の理由: 上と同じ。項目の判断が includer の探索と書き換えを採らないと決めている。
+
+## B-053 / code-review / `tests/test_rename.py:51`
+
+- 指摘: 既存のテストが `allow_end=True` で拒否を避けており、root の終了ステートを既定で rename できることを確かめるテストがない。
+- 却下の理由: 既定の動きは「終了ステートは拒否」で、それを確かめる新しいテストを足した。「root は通る」は採用した動きではないので、確かめるテストは要らない。
+
 ## B-061 / code-review / `shared/backlog/backlog.py:816`
 
 - 指摘: `--against` の ref が読めないと `BacklogError` で止まり、ローカルの lint の結果が表示されない。

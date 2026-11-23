@@ -2493,8 +2493,14 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
     return "".join(out)
 
 
-def rename_state(defn_path: Path, old: str, new: str) -> None:
-    """Rename a state everywhere it is referenced.
+def rename_state(defn_path: Path, old: str, new: str, allow_end: bool = False) -> None:
+    """Rename a state everywhere it is referenced in this file.
+
+    Limit: only this file is rewritten. An end state (`end = true`) of a part is
+    named by the `exits` keys of every include state that uses the part; those
+    live in other files and are not updated. The tool cannot tell a part from a
+    root definition, so renaming an end state is refused unless `allow_end` is
+    set (for a root definition, or when the includers are fixed by hand).
 
     The result is linted before it replaces the file; if it introduces any new
     lint error, the original file is left untouched and FlowError is raised.
@@ -2507,6 +2513,14 @@ def rename_state(defn_path: Path, old: str, new: str) -> None:
         raise FlowError(f"invalid state id '{new}': must match {ID_RE.pattern}")
     if new in states:
         raise FlowError(f"state already exists: {new}")
+    old_st = states[old]
+    if not allow_end and isinstance(old_st, dict) and old_st.get("end") is True:
+        raise FlowError(
+            f"'{old}' is an end state: if this file is included by another definition, "
+            f"the `exits` keys of its include states would still say '{old}' "
+            "(exits-missing / exits-unknown). Rename the matching `exits` keys in every "
+            f"includer by hand, then re-run with --allow-end; {path} was not changed"
+        )
 
     def errors_of(p: Path) -> Counter:
         return Counter(i.code for i in lint(p) if i.level == "error")
@@ -2920,6 +2934,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("definition", type=Path)
     p.add_argument("old")
     p.add_argument("new")
+    p.add_argument(
+        "--allow-end",
+        action="store_true",
+        help="allow renaming an end state (the `exits` keys of includers are not updated)",
+    )
 
     p = sub.add_parser(
         "new", help="write a template definition (fails if the file exists)"
@@ -2966,7 +2985,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"- {line}", file=sys.stderr)
             return 0
         if args.command == "rename":
-            rename_state(args.definition, args.old, args.new)
+            rename_state(args.definition, args.old, args.new, args.allow_end)
             print(f"renamed {args.old} -> {args.new}")
             return 0
         if args.command == "new":
