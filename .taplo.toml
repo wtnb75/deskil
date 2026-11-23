@@ -1,0 +1,7 @@
+# Editor support for flow definitions (Taplo / Even Better TOML).
+# The schema covers the structure only; run `flow.py lint` for the rest.
+[[rule]]
+include = ["plugins/*/skills/*/flow.toml"]
+
+[rule.schema]
+path = "shared/flow/flow.schema.json"

@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "flow.schema.json",
+  "title": "deskil flow definition (flow.toml)",
+  "description": "Structure of a flow definition. Checks that need the whole definition (transition targets, reachability, include exits, files that exist) are done by `flow.py lint`, not here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "start", "states"],
+  "definitions": {
+    "text": {
+      "description": "Inline text, or a table { file = \"relative/path\" } read from the definition directory.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": { "file": { "type": "string" } }
+        }
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    }
+  },
+  "properties": {
+    "schema": {
+      "description": "Version of the definition format.",
+      "const": 1
+    },
+    "start": {
+      "description": "Id of the first state.",
+      "type": "string"
+    },
+    "args": {
+      "description": "Start arguments, referenced as {{arg.NAME}}.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "required": { "type": "boolean" },
+          "default": { "type": "string" }
+        }
+      }
+    },
+    "notes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "always": {
+          "description": "Notes shown in every state.",
+          "type": "array",
+          "items": { "$ref": "#/definitions/text" }
+        },
+        "common": {
+          "description": "Named notes that a state picks with its `notes` list.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/text" }
+        }
+      }
+    },
+    "states": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/definitions/id" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "prompt": { "$ref": "#/definitions/text" },
+          "notes": {
+            "description": "Names from notes.common.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "goto": {
+            "description": "Id of the next state.",
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["label", "when", "goto"],
+              "properties": {
+                "label": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_]+$"
+                },
+                "when": { "$ref": "#/definitions/text" },
+                "goto": { "type": "string" }
+              }
+            }
+          },
+          "end": { "type": "boolean" },
+          "max_visits": { "type": "integer", "minimum": 1 },
+          "on_exceed": {
+            "description": "Id of the state to go to when max_visits is exceeded.",
+            "type": "string"
+          },
+          "delegate": {
+            "description": "Name of the subagent that runs this state.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.:-]*$"
+          },
+          "gate": { "type": "boolean" },
+          "run": {
+            "description": "A command as an argument list.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "timeout": { "type": "integer", "minimum": 1 },
+          "cwd": { "type": "string", "minLength": 1 },
+          "output_lines": { "type": "integer", "minimum": 1 },
+          "include": {
+            "description": "Path of another definition whose states replace this state.",
+            "type": "string",
+            "minLength": 1
+          },
+          "exits": {
+            "description": "With include: end state id of the included definition = state id to go to.",
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

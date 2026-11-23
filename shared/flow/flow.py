@@ -2689,14 +2689,41 @@ end = true
 """
 
 
+# JSON Schema of a definition, for editors (Taplo reads the `#:schema` directive).
+SCHEMA_FILE = Path(__file__).resolve().parent / "flow.schema.json"
+
+
+def _schema_directive(path: Path) -> str:
+    """The `#:schema <relative path>` line for a new definition.
+
+    Returns "" unless the schema is shipped and the definition lives in the same repository
+    as it: a path into a plugin cache would be machine-specific once committed elsewhere.
+    """
+    if not SCHEMA_FILE.is_file():
+        return ""
+    # Resolve the directory so a link on the way does not change what `..` means.
+    start = path.parent.resolve()
+    repo = SCHEMA_FILE.parents[2]
+    if not start.is_relative_to(repo):
+        return ""
+    try:
+        rel = os.path.relpath(SCHEMA_FILE, start)
+    except ValueError:  # e.g. another drive on Windows
+        return ""
+    return f"#:schema {Path(rel).as_posix()}\n"
+
+
 def new_definition(path: Path) -> None:
     """Write a template definition; never overwrite an existing file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    text = (
+        _schema_directive(path) + NEW_TEMPLATE
+    )  # before open: a failure leaves no empty file
     try:
         # Mode "x" fails if the path exists (a symlink included), so nothing is overwritten.
         with open(path, "x", encoding="utf-8") as f:
-            f.write(NEW_TEMPLATE)
+            f.write(text)
     except FileExistsError:
         raise FlowError(f"already exists: {path}") from None
 

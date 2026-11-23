@@ -41,14 +41,6 @@
 
 ## todo / ready
 
-### B-063 flow: flow.toml の JSON Schema を Taplo で使えるようにする
-- 状態: ready
-- 優先度: P3
-- 追加: 2026-11-23
-- 背景: `flow.toml` の検査は `flow.py lint` だけで、書いている間のエディタの補完やエラー表示がない。TOML には YAML の `$schema` コメントのような標準はないが、Taplo（VS Code の Even Better TOML 拡張）は `#:schema <path>` と `.taplo.toml` の `[[rule]]` で JSON Schema を使える。
-- 概要: 構造（キー名、型、`choices` など）を表す JSON Schema を用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。遷移先の存在、到達性、`exits` の対応、`{file}` の実在は、スキーマで表せないので `flow.py lint` に残す。`flow.py` は標準ライブラリだけの方針なので、スキーマは別ファイルにし、`lint` の `unknown-key` などと食い違わないよう、テストで一致を確かめる方法が未決。`flow.py new` の雛形に `#:schema` を入れるかも決める。
-- 判断: 案 A。構造（キー名、型、`choices` など）を表す JSON Schema を別ファイルで用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。`flow.py new` の雛形に `#:schema`（相対パス）を入れる。テストで、スキーマのキー名と `flow.py` が持つ既知キーの定義を突き合わせ、`lint` の `unknown-key` と食い違わないようにする。遷移先の存在、到達性、`exits` の対応、`{ file }` の実在は `flow.py lint` に残す。
-
 ## done / dropped
 
 ### B-009 feature 追加: バックログ管理スキル
@@ -628,4 +620,13 @@
 - 背景: B-014 で却下した指摘 2 件（altitude と code-review）。`tokens.py` はサブエージェント（sidechain）の記録を集計しない。`impl` の `review` は `code-review` などのスキルでサブエージェントを使うので、deskil 版のトークン数が低く出る。制限は文書に書いてある。
 - 概要: sidechain の記録を含めて集計する（別行にするか、合算するか）。ログの置き場所（セッションの下の別ファイル）の読み方が未決。
 - 判断: 案 A。セッションの `.jsonl` に対応するサブエージェント（sidechain）のファイルも読み、本体とサブエージェントを別の列に分けて出し、合計も出す。実装の最初に、実際のセッションでサブエージェントのログの置き場所と形式を確かめる。
+- 完了: 2026-11-23
+
+### B-063 flow: flow.toml の JSON Schema を Taplo で使えるようにする
+- 状態: done
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: `flow.toml` の検査は `flow.py lint` だけで、書いている間のエディタの補完やエラー表示がない。TOML には YAML の `$schema` コメントのような標準はないが、Taplo（VS Code の Even Better TOML 拡張）は `#:schema <path>` と `.taplo.toml` の `[[rule]]` で JSON Schema を使える。
+- 概要: 構造（キー名、型、`choices` など）を表す JSON Schema を用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。遷移先の存在、到達性、`exits` の対応、`{file}` の実在は、スキーマで表せないので `flow.py lint` に残す。`flow.py` は標準ライブラリだけの方針なので、スキーマは別ファイルにし、`lint` の `unknown-key` などと食い違わないよう、テストで一致を確かめる方法が未決。`flow.py new` の雛形に `#:schema` を入れるかも決める。
+- 判断: 案 A。構造（キー名、型、`choices` など）を表す JSON Schema を別ファイルで用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。`flow.py new` の雛形に `#:schema`（相対パス）を入れる。テストで、スキーマのキー名と `flow.py` が持つ既知キーの定義を突き合わせ、`lint` の `unknown-key` と食い違わないようにする。遷移先の存在、到達性、`exits` の対応、`{ file }` の実在は `flow.py lint` に残す。
 - 完了: 2026-11-23
