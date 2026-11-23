@@ -141,3 +141,13 @@
 
 - 指摘: 追加した段落がモジュールの docstring と一部重複している。
 - 却下の理由: docstring は CLI だけ使う人向け、文書は集計手順を読む人向けで、読む場所が違う。好みの範囲。
+
+## B-063 / code-review / `shared/flow/flow.schema.json:12`
+
+- 指摘: `text` 定義が `oneOf` なので、`prompt = { file = "a", extra = 1 }` のようなときの Taplo のエラーが曖昧になる。
+- 却下の理由: 詳しいメッセージは `flow.py lint` が出す。スキーマは構造の概略をエディタに示すのが役目で、メッセージの質は好みの範囲。
+
+## B-063 / code-review / `tests/test_schema_file.py:78`
+
+- 指摘: `new` の `#:schema` のテストが、ディレクトリがリンク経由の場合と、別ドライブで `relpath` が失敗する場合を確かめていない。
+- 却下の理由: 別ドライブの失敗は `ValueError` を捕まえて directive を省く処理と、その手前でファイルを作らないテストで確かめている。リンク経由は `resolve()` の標準の動きに任せる。

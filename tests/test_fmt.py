@@ -28,7 +28,9 @@ def test_new_matches_fmt_and_lints(flow, tmp_path):
     p = tmp_path / "flow.toml"
     flow.new_definition(p)
     assert flow.lint(p) == []
-    assert flow.format_text(p.read_text(encoding="utf-8")) == flow.NEW_TEMPLATE
+    text = p.read_text(encoding="utf-8")
+    assert flow.format_text(text) == text
+    assert text.endswith(flow.NEW_TEMPLATE)
     assert flow.format_definition(p) is False
 
 
