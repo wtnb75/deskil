@@ -90,12 +90,14 @@ def test_scripts_are_relative_symlinks_into_shared(script, target):
 
 def test_add_happy_and_duplicate_paths(tmp_path):
     assert visited(dry_run("add", ["new", "ok"], tmp_path)) == [
+        "prepare",
         "check_dup",
         "write",
         "lint",
         "report",
     ]
     assert visited(dry_run("add", ["duplicate", "ok"], tmp_path)) == [
+        "prepare",
         "check_dup",
         "update_existing",
         "lint",

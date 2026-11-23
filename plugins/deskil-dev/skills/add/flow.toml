@@ -1,16 +1,27 @@
 schema = 1
-start = "check_dup"
+start = "prepare"
 
 [notes]
 always = [
   "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format: follow it.",
   "Never guess an item id: get it from `backlog.py next-id`. Keep every field value on one line.",
   "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",
+  "This skill stops at a linted, uncommitted edit. Commit and push only when the user asks.",
 ]
 
+[states.prepare]
+prompt = """Run `git fetch origin`, then find the default branch with `git symbolic-ref --short refs/remotes/origin/HEAD`
+(it prints `origin/<default branch>`). If that fails, stop and ask the user which branch to start from.
+Run `git status --short`. If anything is changed, stop and tell the user: do not run the next command.
+Unless the user asked to keep working on the current branch, create a work branch from the fetched remote branch,
+not from the local one:
+`git switch -c backlog/add-<slug> origin/<default branch> --no-track`
+(slug: the idea as lowercase ASCII words joined by hyphens). Do not update the local default branch."""
+goto = "check_dup"
+
 [states.check_dup]
-prompt = """Run `backlog.py list --all` and compare the idea the user wants to add with the existing items.
-If a similar item exists, read it with `backlog.py show <ID>`."""
+prompt = """Run `backlog.py --ref origin/<default branch> list --all` and compare the idea the user wants to add with the existing items.
+If a similar item exists, read it with `backlog.py --ref origin/<default branch> show <ID>`."""
 
 [[states.check_dup.choices]]
 label = "new"
