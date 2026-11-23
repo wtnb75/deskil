@@ -1350,6 +1350,9 @@ class Run:
     args: dict[str, str] = field(
         default_factory=dict
     )  # start arguments, defaults applied
+    # How many times each state's max_visits was hit and the step redirected to its
+    # on_exceed. None for a run written before this was recorded (stats replays then).
+    exceeded: dict[str, int] | None = None
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -1384,6 +1387,7 @@ def load_run(state_dir: Path, run_id: str) -> Run:
             cwd=data.get("cwd", ""),
             commands=list(data.get("commands", [])),
             args=dict(data.get("args", {})),
+            exceeded=(None if data.get("exceeded") is None else dict(data["exceeded"])),
         )
     except (ValueError, KeyError, TypeError) as e:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
@@ -1741,6 +1745,7 @@ def start_run(
         ref=ref,
         cwd=str(Path.cwd()),
         args=resolved,
+        exceeded={},
     )
     try:
         run.definition_hash = defn.hash
@@ -1785,7 +1790,7 @@ def next_step(
         )
 
     # Check the result first, so a wrong label is reported before a missing approval.
-    target = step_target(defn, run.visits, run.current, label)
+    target, hit = _resolve_target(defn, run.visits, run.current, label)
     gate = defn.states[run.current].gate
     if gate and not (approval and approval.strip()):
         raise FlowError(
@@ -1803,6 +1808,9 @@ def next_step(
         entry["approval"] = approval.strip()
     run.history.append(entry)
     run.visits[target] = run.visits.get(target, 0) + 1
+    if run.exceeded is not None:
+        for sid in hit:
+            run.exceeded[sid] = run.exceeded.get(sid, 0) + 1
     run.current = target
     run.definition_hash = new_hash
     if defn.states[target].end:
@@ -1933,14 +1941,8 @@ def status_text(run_id: str, state_dir: Path) -> str:
     return "\n".join(lines) + "\n"
 
 
-def stats_json(run_id: str, state_dir: Path) -> str:
-    """Per-state visit counts and on_exceed entries of one run, as JSON.
-
-    Visits come from the run record. The exceed counts are found by replaying
-    the recorded history against the definition: a state is counted each time
-    its max_visits was hit and the step was redirected to its on_exceed.
-    """
-    run = load_run(state_dir, run_id)
+def _replay_exceeded(run: Run) -> dict[str, int]:
+    """Count on_exceed entries of a run with no recorded counts by replaying its history."""
     path = Path(run.definition)
     if not path.is_file():
         raise FlowError(f"definition not found: {path}")
@@ -1959,6 +1961,19 @@ def stats_json(run_id: str, state_dir: Path) -> str:
         for sid in hit:
             exceeded[sid] = exceeded.get(sid, 0) + 1
         visits[target] = visits.get(target, 0) + 1
+    return exceeded
+
+
+def stats_json(run_id: str, state_dir: Path) -> str:
+    """Per-state visit counts and on_exceed entries of one run, as JSON.
+
+    Visits and exceed counts both come from the run record: `next` counts a state
+    each time its max_visits was hit and the step was redirected to its on_exceed.
+    A run written before that was recorded has no counts; for it they are found by
+    replaying the history against the definition, which must be unchanged.
+    """
+    run = load_run(state_dir, run_id)
+    exceeded = run.exceeded if run.exceeded is not None else _replay_exceeded(run)
     states = {
         sid: {"visits": run.visits.get(sid, 0), "exceeded": exceeded.get(sid, 0)}
         for sid in run.visits
