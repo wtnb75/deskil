@@ -62,8 +62,8 @@ goto = "record"
 [states.record]
 prompt = """Recording is done one item at a time. Take the next confirmed item whose outcome is not yet written to the backlog
 and choose its outcome below. When every confirmed item is recorded, choose `done`."""
-max_visits = 30
-on_exceed = "report_fail"
+max_visits = 200
+on_exceed = "report_record_limit"
 
 [[states.record.choices]]
 label = "ready"
@@ -146,4 +146,10 @@ end = true
 [states.report_fail]
 prompt = """Tell the user that the backlog still fails lint after two fix attempts, and list the remaining problems.
 Do not claim that the decision was recorded cleanly."""
+end = true
+
+[states.report_record_limit]
+prompt = """Tell the user that the number of recording steps reached the limit (200), so some confirmed items may not be recorded.
+List which items are recorded and which are not (check with `backlog.py show <ID>`), and suggest running decide again for the rest.
+Do not claim that every decision was recorded."""
 end = true
