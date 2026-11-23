@@ -368,6 +368,30 @@ def test_list_not_started_cli(backlog, tmp_path, monkeypatch, capsys):
     assert [line.split("  ")[0] for line in out.splitlines()] == ["B-002", "B-003"]
 
 
+def test_list_not_started_reports_hidden_ids_on_stderr(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    path = write(tmp_path, SAMPLE)
+    monkeypatch.setattr(backlog, "started_ids", lambda: {"B-001"})
+    assert backlog.main(["--file", str(path), "list", "--not-started"]) == 0
+    captured = capsys.readouterr()
+    assert [line.split("  ")[0] for line in captured.out.splitlines()] == [
+        "B-002",
+        "B-003",
+    ]
+    assert "hidden by --not-started" in captured.err
+    assert "B-001" in captured.err
+
+
+def test_list_not_started_is_silent_when_nothing_is_hidden(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    path = write(tmp_path, SAMPLE)
+    monkeypatch.setattr(backlog, "started_ids", lambda: {"B-999"})
+    assert backlog.main(["--file", str(path), "list", "--not-started"]) == 0
+    assert capsys.readouterr().err == ""
+
+
 def _repo_with_backlog(
     tmp_path: Path, committed: str, relpath: str = "docs/BACKLOG.md"
 ) -> Path:
