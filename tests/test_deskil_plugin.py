@@ -53,8 +53,16 @@ def test_author_skill_covers_the_authoring_commands():
         assert needle in text
 
 
+@pytest.mark.parametrize("skill", ["flow-convert", "flow-export"])
+def test_flow_driven_skill_runs_its_definition(skill):
+    text = (CORE / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    assert f"flow.py start ${{CLAUDE_PLUGIN_ROOT}}/skills/{skill}/flow.toml" in text
+    assert "Flow complete." in text
+    assert (CORE / "skills" / skill / "flow.toml").is_file()
+
+
 def test_convert_skill_covers_split_rule_and_verification():
-    text = (CORE / "skills" / "flow-convert" / "SKILL.md").read_text(encoding="utf-8")
+    text = (CORE / "skills" / "flow-convert" / "flow.toml").read_text(encoding="utf-8")
     for needle in (
         "flow.py lint",
         "flow.py dry-run",
@@ -71,7 +79,7 @@ def test_review_skill_covers_review_and_debug_commands():
 
 
 def test_export_skill_covers_export_report_and_round_trip():
-    text = (CORE / "skills" / "flow-export" / "SKILL.md").read_text(encoding="utf-8")
+    text = (CORE / "skills" / "flow-export" / "flow.toml").read_text(encoding="utf-8")
     for needle in (
         "flow.py export",
         "flow.py lint",

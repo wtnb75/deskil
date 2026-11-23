@@ -1,0 +1,63 @@
+schema = 1
+start = "lint"
+
+[notes]
+always = [
+  "In the steps, `flow.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py <args>`.",
+]
+
+[states.lint]
+prompt = "Run `flow.py lint <flow.toml>` on the definition to export."
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint reported no errors"
+goto = "export"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint reported one or more errors"
+goto = "fix"
+
+[states.fix]
+prompt = "Fix every lint error first (see `flow-review`), then run `flow.py lint <flow.toml>` again."
+goto = "lint"
+max_visits = 3
+on_exceed = "report_failed"
+
+[states.export]
+prompt = """Run `flow.py export <flow.toml>`. Add `--lang en` or `--lang ja` if the detected language of the fixed phrases is wrong.
+The text goes to stdout, and the list of dropped information goes to stderr (`dropped information:`). Keep both."""
+goto = "write_skill"
+
+[states.write_skill]
+prompt = """Create or update the skill's `SKILL.md`:
+1. Keep its frontmatter `name` and `description`, and its context and domain knowledge (the part `flow-convert` left in `SKILL.md`).
+2. Replace the "run `flow.py start`" loop with the exported text.
+3. Remove the `flow.py` entry from `allowed-tools`. Keep the tools the steps themselves need (for example the commands of a `run`).
+4. Remove the bundled `flow.py` symlink and the `flow.toml` only if the user wants to stop using deskil for this skill; otherwise keep them so the skill can be converted again."""
+goto = "report_lost"
+
+[states.report_lost]
+prompt = """Show the user the `dropped information` list, and say plainly that these are no longer enforced by anything:
+- `max_visits`: the text says the limit, but no one counts the visits.
+- `run`: the command is written in the text; the engine no longer runs it or shows its output.
+- `delegate`: the text names the subagent; the engine no longer sets it up.
+- `gate`: the text asks the user to confirm; the engine no longer records the approval.
+- `include`: the parts were merged into one text (ids may be prefixed).
+- Prompt files were copied into the text."""
+goto = "round_trip"
+
+[states.round_trip]
+prompt = """If the skill came from `flow-convert`, check the round trip: the symbols should match the definition.
+Compare the ids, the `<label>` -> `<goto>` lines and the limits with `flow.py graph <flow.toml>` and `flow.py dry-run <flow.toml>`.
+If the skill did not come from `flow-convert`, skip the comparison."""
+goto = "report"
+
+[states.report]
+prompt = "Report the exported `SKILL.md`, the dropped information, and whether the round trip matched."
+end = true
+
+[states.report_failed]
+prompt = "Report that the definition still has lint errors, so nothing was exported, and list the errors."
+end = true
