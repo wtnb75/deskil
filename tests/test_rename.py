@@ -166,3 +166,66 @@ def test_rename_explains_when_the_header_cannot_be_found(flow, write_def, tmp_pa
         flow.rename_state(path, "b", "c")
     assert "table header" in str(exc.value)
     assert path.read_bytes() == before
+
+
+PART = (
+    'schema = 1\nstart = "p"\n'
+    '[states.p]\nprompt = "P"\nchoices = [\n'
+    '  { label = "ok", when = "w", goto = "ok" },\n'
+    '  { label = "bad", when = "w2", goto = "fail" },\n]\n'
+    '[states.ok]\nprompt = "ok"\nend = true\n'
+    '[states.fail]\nprompt = "fail"\nend = true\n'
+)
+
+INCLUDE_FORMS = {
+    "inline": 'include = "part.toml"\nexits = { ok = "c", fail = "c" }  # c twice\n',
+    "table": 'include = "part.toml"\n\n[states.i.exits]\nok = "c"\nfail = "c"\n',
+    "dotted": 'include = "part.toml"\nexits.ok = "c"\nexits.fail = "c"\n',
+}
+
+
+@pytest.mark.parametrize("form", sorted(INCLUDE_FORMS))
+def test_rename_updates_exits_values(flow, write_def, tmp_path, form):
+    write_def(tmp_path, PART, name="part.toml")
+    text = (
+        'schema = 1\nstart = "i"\n[states.i]\n'
+        + INCLUDE_FORMS[form]
+        + '\n[states.c]\nprompt = "C"\nend = true\n'
+    )
+    path = write_def(tmp_path, text)
+    assert flow.lint(path) == []
+    flow.rename_state(path, "c", "done")
+    out = path.read_text(encoding="utf-8")
+    assert out.count('"done"') == 2 and '"c"' not in out
+    assert "[states.done]" in out
+    assert flow.lint(path) == []
+
+
+def test_rename_exits_leaves_other_values_and_keys(flow, write_def, tmp_path):
+    write_def(tmp_path, PART, name="part.toml")
+    text = (
+        'schema = 1\nstart = "i"\n[states.i]\n'
+        'include = "part.toml"\nexits = { ok = "c", fail = "d" }\n'
+        '[states.c]\nprompt = "C"\nend = true\n'
+        '[states.d]\nprompt = "D"\nend = true\n'
+    )
+    path = write_def(tmp_path, text)
+    flow.rename_state(path, "c", "ok")  # new id equals an exits key
+    assert 'exits = { ok = "ok", fail = "d" }' in path.read_text(encoding="utf-8")
+    assert flow.lint(path) == []
+
+
+def test_rename_of_an_include_state_keeps_its_exits(flow, write_def, tmp_path):
+    write_def(tmp_path, PART, name="part.toml")
+    text = (
+        'schema = 1\nstart = "i"\n[states.i]\n'
+        'include = "part.toml"\nexits = { ok = "i2", fail = "i2" }\n'
+        '[states.i2]\ninclude = "part.toml"\nexits = { ok = "e", fail = "e" }\n'
+        '[states.e]\nprompt = "E"\nend = true\n'
+    )
+    path = write_def(tmp_path, text)
+    flow.rename_state(path, "i2", "next")
+    out = path.read_text(encoding="utf-8")
+    assert 'exits = { ok = "next", fail = "next" }' in out
+    assert "[states.next]" in out
+    assert flow.lint(path) == []

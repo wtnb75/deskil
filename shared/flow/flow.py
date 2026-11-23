@@ -2183,8 +2183,24 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
     key_re = re.compile(
         rf"""(?:^|(?<=[{{,]))(\s*)(start|goto|on_exceed)(\s*=\s*)(["']){old_re}\4"""
     )
+    # The values of an include state's `exits` (parent state ids) are references too.
+    # They appear as `exits = { k = "v" }`, `exits.k = "v"` or under `[states.X.exits]`.
+    exits_head_re = re.compile(
+        r"""^\s*\[\s*states\s*\.\s*(?:"[^"]*"|'[^']*'|[^.\]\s]+)\s*\.\s*exits\s*\]"""
+    )
+    exits_val_re = re.compile(rf"""(=\s*)(["']){old_re}\2(?=\s*[,}}]|\s*$)""")
+    exits_inline_re = re.compile(r"""(?:^|(?<=[{,]))(\s*exits\s*=\s*)(\{.*\})""")
+    exits_dotted_re = re.compile(
+        rf"""^(\s*exits\s*\.\s*(?:"[^"]*"|'[^']*'|[^\s=]+)\s*=\s*)(["']){old_re}\2"""
+    )
+
+    def swap_id(m: re.Match[str]) -> str:
+        # group 1 = text before the id, group 2 = its opening quote (may be empty)
+        return f"{m.group(1)}{m.group(2)}{new}{m.group(2)}"
+
     out: list[str] = []
     delim: str | None = None  # open multi-line string delimiter, if inside one
+    in_exits = False  # inside a `[states.X.exits]` table
     for line in text.splitlines(keepends=True):
         if delim is not None:
             if delim in line:
@@ -2193,8 +2209,15 @@ def _rewrite_ids(text: str, old: str, new: str) -> str:
             continue
         if not line.lstrip().startswith("#"):
             code, comment = _split_comment(line)
-            code = head_re.sub(
-                lambda m: f"{m.group(1)}{m.group(2)}{new}{m.group(2)}", code
+            if code.lstrip().startswith("["):
+                in_exits = bool(exits_head_re.match(code))
+            elif in_exits:
+                code = exits_val_re.sub(swap_id, code)
+            code = head_re.sub(swap_id, code)
+            code = exits_dotted_re.sub(swap_id, code)
+            code = exits_inline_re.sub(
+                lambda m: m.group(1) + exits_val_re.sub(swap_id, m.group(2)),
+                code,
             )
             code = key_re.sub(
                 lambda m: (
