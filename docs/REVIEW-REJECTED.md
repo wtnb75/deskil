@@ -2,6 +2,18 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-014
+
+- simplify（simplification）/ `shared/bench/tokens.py`: `COLUMNS` と `Stats.row()` を `as_dict()` に置き換える。`render` と JSON 出力も同じ辞書から作る。却下: 動作は変わらず、列の順序（`total` の位置）の整理も要る。好みの範囲で、テストの書き換えも増える。
+- simplify（simplification）/ `collect` の 2 回目の集計ループ、`_blocks` を使う 2 つの総和、JSON 出力の `to_json` への切り出し、`--markdown` の出力: 却下: 好みの範囲で、動作は変わらない。`--markdown` は範囲外。
+- simplify（reuse）/ テストの importlib の読み込みを `conftest.py` の `sys.path` + fixture に合わせる。却下: `tokens` という名前が他のモジュールとぶつかる恐れがあり、importlib のほうが安全。
+- simplify（simplification）・code-review / `test_declares_python_version_for_uv_run` が先頭の文字列を固定していて、壊れやすい。`write_log` の `junk` フラグも整理できる。却下: 既存の `test_script_header.py` も同じ書き方で、他のスクリプトと揃えている。好みの範囲。
+- altitude / `tool_calls` を ID で重複排除せず行ごとに数えている。却下: 1 つのブロックは 1 行にしか書かれないので現状で正しい（Claude Code のログの書き方に依存する）。
+- altitude・code-review / サブエージェント（sidechain）の記録を集計に含める。却下: 範囲外。`decide` はサブエージェントを使わないので初版では影響がなく、制限を文書に書いた。
+- efficiency / `cache_read` などの `getattr` による組み立て、ファイルの直列処理、テストでの再パース: 却下: ファイルごとに 1 回で、差は出ない。
+- security-review: 指摘なし。
+- 修正: efficiency の「ファイル全体を読み込まず 1 行ずつ読む」、code-review の「オブジェクトでない JSON の行で落ちる」「usage の値が null で落ちる」「ID のないメッセージを別の応答として数える（ID なしは除外）」、simplify の未使用の `USAGE_KEYS` の削除、`group_means` の引数の統一、`row()` の型注釈、サブエージェントを含まない制限の文書化は採用し、修正した。
+
 ## B-042
 
 - simplify（efficiency）/ `shared/backlog/backlog.py` `remote_id_numbers`: ref ごとに `git show` を直列に最大 21 回呼ぶ。`git cat-file --batch` か `git grep` に替えるべき。却下: 1 回数 ms で、`next-id` 全体でも 0.5 秒未満。バッチにすると欠けたファイルの扱いが複雑になり、`read_backlog_ref` の再利用もできなくなる。
