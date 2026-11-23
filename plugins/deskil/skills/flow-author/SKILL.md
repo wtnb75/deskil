@@ -1,8 +1,10 @@
 ---
 name: flow-author
 description: Create or edit a flow definition (flow.toml) from a step-by-step procedure, then check it with lint and dry-run
-allowed-tools: Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*)
+allowed-tools: Bash(deskil flow:*)
 ---
+
+Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.
 
 Turn a procedure into a flow definition, or edit an existing one. Every
 command below is run exactly as written.
@@ -16,7 +18,7 @@ apply to the whole procedure.
 ## 2. Write `flow.toml` next to the skill
 
 For a new definition, start from the template:
-`uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py new <flow.toml>` (it refuses to overwrite an existing file), then replace its states (the template is a small do_work, check, fix, report flow). An example that shows the common keys:
+`deskil flow new <flow.toml>` (it refuses to overwrite an existing file), then replace its states (the template is a small do_work, check, fix, report flow). An example that shows the common keys:
 
 ```toml
 schema = 1
@@ -61,15 +63,15 @@ Rules:
 
 ## 3. Check it
 
-1. `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py fmt <flow.toml>`: sort the keys and normalise the layout in place. Comments are kept (a comment line stays with the key below it); the command refuses to write if the data would change. Run it after every edit, before lint.
-2. `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py lint <flow.toml>`: fix every error. Read every warning and decide if it is intended.
-3. `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py dry-run <flow.toml>`: read every state as the LLM will see it.
-4. `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py dry-run <flow.toml> --results fail,fail,fail`: walk the paths that matter, including the loop limit.
+1. `deskil flow fmt <flow.toml>`: sort the keys and normalise the layout in place. Comments are kept (a comment line stays with the key below it); the command refuses to write if the data would change. Run it after every edit, before lint.
+2. `deskil flow lint <flow.toml>`: fix every error. Read every warning and decide if it is intended.
+3. `deskil flow dry-run <flow.toml>`: read every state as the LLM will see it.
+4. `deskil flow dry-run <flow.toml> --results fail,fail,fail`: walk the paths that matter, including the loop limit.
 
 ## 4. Rename states with the tool
 
 Never rename a state by hand. Use
-`uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py rename <flow.toml> <old> <new>`.
+`deskil flow rename <flow.toml> <old> <new>`.
 It updates every reference in that file and refuses a rename that would break the definition.
 It does not touch other files: an end state (`end = true`) of a part is named by the `exits` keys
 of the include states in every includer, so renaming one is refused. If you really need it, rename
@@ -78,7 +80,7 @@ the `exits` keys in each includer by hand, then re-run with `--allow-end`.
 ## 5. Wire up the skill
 
 The skill's `SKILL.md` only needs a fixed loop: run
-`uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py start <flow.toml>`, follow the
+`deskil flow start <flow.toml>`, follow the
 output, run the `next` command it prints, and repeat until it prints
-`Flow complete.` Add `allowed-tools` for the `flow.py` command, and bundle the
-engine with a relative symlink to `shared/flow/flow.py`.
+`Flow complete.` Add `allowed-tools: Bash(deskil flow:*)`, and put this sentence first in
+the body: "Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop."
