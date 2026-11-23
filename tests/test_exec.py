@@ -131,6 +131,20 @@ def test_definition_modified_in_worktree_is_display_only(flow, repo, state_dir):
     assert "Exit code" not in out
 
 
+def test_prompt_file_modified_in_worktree_is_display_only(flow, repo, state_dir):
+    text = _def(py("print('hello')")).replace(
+        'prompt = "Run it"', 'prompt = { file = "p.md" }'
+    )
+    (repo / "p.md").write_text("Run it\n", encoding="utf-8")
+    _git(repo, "add", "p.md")
+    path = commit(repo, text)
+    (repo / "p.md").write_text("edited\n", encoding="utf-8")
+    out = flow.start_run(path, state_dir)
+    assert "not executed" in out.lower()
+    assert "p.md" in out
+    assert "Exit code" not in out
+
+
 def test_force_after_edit_does_not_execute(flow, repo, state_dir, tmp_path):
     two = """\
 schema = 1

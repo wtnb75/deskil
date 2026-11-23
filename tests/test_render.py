@@ -126,7 +126,7 @@ def test_render_without_notes_has_no_notes_section(flow, write_def, tmp_path):
     assert "Notes:" not in out
 
 
-def test_render_reads_files_only_for_current_state(flow, notes_def, tmp_path):
+def test_render_uses_the_bytes_read_at_load(flow, notes_def, tmp_path):
     defn = flow.load_definition(notes_def)
     (tmp_path / "prompts" / "s2.md").unlink()  # s2's prompt
     (tmp_path / "notes" / "other.md").unlink()  # unreferenced common note
@@ -134,8 +134,7 @@ def test_render_reads_files_only_for_current_state(flow, notes_def, tmp_path):
     assert "Do task A" in out
 
 
-def test_render_missing_prompt_file_raises_flowerror(flow, notes_def, tmp_path):
-    defn = flow.load_definition(notes_def)
+def test_load_missing_prompt_file_raises_flowerror(flow, notes_def, tmp_path):
     (tmp_path / "prompts" / "s2.md").unlink()
     with pytest.raises(flow.FlowError):
-        flow.render_step(defn, "s2", "R1", cmd="flow")
+        flow.load_definition(notes_def)

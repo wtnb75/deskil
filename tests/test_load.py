@@ -107,4 +107,33 @@ def test_load_reads_the_toml_once(flow, full_def, monkeypatch):
     real = flow.read_source
     monkeypatch.setattr(flow, "read_source", lambda p: calls.append(p) or real(p))
     flow.load_definition(full_def)
-    assert len(calls) == 1
+    assert len(calls) == len(set(calls))  # every file (the toml and the texts) once
+    assert calls.count(full_def) == 1
+
+
+def _file_def(tmp_path):
+    (tmp_path / "p.md").write_text("first\n", encoding="utf-8")
+    d = tmp_path / "flow.toml"
+    d.write_text(
+        'schema = 1\nstart = "a"\n[states.a]\nprompt = { file = "p.md" }\nend = true\n',
+        encoding="utf-8",
+    )
+    return d
+
+
+def test_prompt_file_is_in_the_hash_and_sources(flow, tmp_path):
+    d = _file_def(tmp_path)
+    before = flow.load_definition(d)
+    assert (tmp_path / "p.md").resolve() in before.sources or any(
+        p.name == "p.md" for p in before.sources
+    )
+    (tmp_path / "p.md").write_text("second\n", encoding="utf-8")
+    after = flow.load_definition(d)
+    assert before.hash != after.hash
+
+
+def test_prompt_is_rendered_from_the_hashed_bytes(flow, tmp_path):
+    d = _file_def(tmp_path)
+    defn = flow.load_definition(d)
+    (tmp_path / "p.md").write_text("changed\n", encoding="utf-8")
+    assert "first" in flow.render_step(defn, "a", "r1")
