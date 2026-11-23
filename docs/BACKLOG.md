@@ -41,7 +41,29 @@
 
 ## todo / ready
 
+### B-066 backlog: バックログ管理を他のリポジトリへ配布する
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: `backlog.py` と `deskil-dev` はこのリポジトリ専用で、配布方法の変更（`deskil` コマンド化。docs/superpowers/specs/2026-11-23-flow-distribution-design.md）の対象から外した。
+- 概要: バックログ管理を汎用のプラグインとして作るなら、`deskil backlog …` として `deskil` コマンドに載せる（振り分けに 1 行足す）か、別の方法にするかを決める。`deskil-dev` の skill が `backlog.py` を相対 symlink で呼んでいる点も合わせて見直す。
+
+### B-067 flow: PyPI 公開と、版を固定した導入
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 今回の導入は `uv tool install git+https://…` に限り、版の固定と PyPI は扱わない。
+- 概要: 再現性が要る環境（CI など）向けに、`@v1.4.2` のようなタグ指定の導入手順を README に書くか、PyPI に公開するかを検討する。
+
 ## done / dropped
+
+### B-065 flow: コマンドを `deskil` に束ねる（`deskil flow start …`）
+- 状態: dropped
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 配布方法の変更を `deskil-flow` 1 本で始める案を出した。
+- 概要: `deskil flow …` のようにサブコマンドで束ねる。
+- 判断: 取り下げる。コマンド名が skill の呼び出し・`allowed-tools`・更新の案内に入り、あとから変えると利用者の skill も書き換えになるため、最初から `deskil flow …` にする（docs/superpowers/specs/2026-11-23-flow-distribution-design.md に取り込んだ）。`backlog` を載せる件は B-066。
 
 ### B-009 feature 追加: バックログ管理スキル
 - 状態: done

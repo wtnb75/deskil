@@ -3,7 +3,6 @@ start = "read"
 
 [notes]
 always = [
-  "In the steps, `flow.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py <args>`.",
   "Do not change what a step does when converting; only restructure it. Writing the definition follows the `flow-author` skill.",
 ]
 
@@ -18,11 +17,11 @@ goto = "write"
 
 [states.write]
 prompt = """Create `flow.toml` next to the skill, following `flow-author`: one state per step, one `[[choices]]` block per outcome of each decision, `end = true` on the final state.
-Do not change what a step does; only restructure it. Then run `flow.py fmt <flow.toml>`."""
+Do not change what a step does; only restructure it. Then run `deskil flow fmt <flow.toml>`."""
 goto = "lint"
 
 [states.lint]
-prompt = "Run `flow.py lint <flow.toml>`. Fix every error and read every warning."
+prompt = "Run `deskil flow lint <flow.toml>`. Fix every error and read every warning."
 
 [[states.lint.choices]]
 label = "ok"
@@ -35,14 +34,14 @@ when = "lint reported one or more errors"
 goto = "fix"
 
 [states.fix]
-prompt = "Fix the errors lint printed in `flow.toml` (use `flow.py rename` to rename a state, never by hand), then run `flow.py fmt <flow.toml>`."
+prompt = "Fix the errors lint printed in `flow.toml` (use `deskil flow rename` to rename a state, never by hand), then run `deskil flow fmt <flow.toml>`."
 goto = "lint"
 max_visits = 3
 on_exceed = "report_failed"
 
 [states.dry_run]
-prompt = """Run `flow.py dry-run <flow.toml>` and read every state as the LLM will see it.
-Then run `flow.py dry-run <flow.toml> --results <labels>` to walk each branch and loop limit of the original skill.
+prompt = """Run `deskil flow dry-run <flow.toml>` and read every state as the LLM will see it.
+Then run `deskil flow dry-run <flow.toml> --results <labels>` to walk each branch and loop limit of the original skill.
 Do not compare the behavior of the old and new skill automatically. The correspondence table is the check."""
 
 [[states.dry_run.choices]]
@@ -78,8 +77,8 @@ goto = "report_failed"
 
 [states.rewrite]
 prompt = """Reduce `SKILL.md` to the context and domain knowledge plus a fixed loop:
-run `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py start <flow.toml>`, follow the output, run the `next` command it prints, and repeat until it prints `Flow complete.`
-Add `allowed-tools` for the `flow.py` command, and bundle the engine with a relative symlink to `shared/flow/flow.py`."""
+run `deskil flow start <flow.toml>`, follow the output, run the `next` command it prints, and repeat until it prints `Flow complete.`
+Put this sentence first in the body: "Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop." Then add `allowed-tools: Bash(deskil --version), Bash(deskil flow:*)`."""
 goto = "report"
 
 [states.report]

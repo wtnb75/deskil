@@ -4,7 +4,7 @@ start = "prepare"
 [notes]
 always = [
   "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format: follow it.",
-  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `flow.py` still find the backlog and the run state from a subdirectory of the repository).",
+  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `deskil flow` still find the backlog and the run state from a subdirectory of the repository).",
   "Never guess an item id: get it from `backlog.py next-id`. Keep every field value on one line.",
   "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",
   "This skill stops at a linted, uncommitted edit. Commit and push only when the user asks.",

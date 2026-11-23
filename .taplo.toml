@@ -1,5 +1,5 @@
 # Editor support for flow definitions (Taplo / Even Better TOML).
-# The schema covers the structure only; run `flow.py lint` for the rest.
+# The schema covers the structure only; run `deskil flow lint` for the rest.
 [[rule]]
 include = ["plugins/*/skills/*/flow.toml"]
 

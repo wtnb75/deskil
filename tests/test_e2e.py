@@ -1,4 +1,4 @@
-"""End-to-end: run the sample flow through the symlink bundled in feature-a."""
+"""End-to-end: run the sample flow of feature-a with the engine."""
 
 import os
 import re
@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "feature-a"
-LINK = PLUGIN / "scripts" / "flow.py"
+ENGINE = ROOT / "shared" / "flow" / "flow.py"
 DEFN = PLUGIN / "skills" / "review-loop" / "flow.toml"
 SKILL = PLUGIN / "skills" / "review-loop" / "SKILL.md"
 
@@ -20,7 +20,7 @@ def run_flow(args, cwd):
         k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")
     }
     return subprocess.run(
-        [sys.executable, str(LINK), *args],
+        [sys.executable, str(ENGINE), *args],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -33,7 +33,7 @@ def hint_args(out: str, label: str | None) -> list[str]:
     """Extract the arguments of the printed `next` hint (everything after the script path)."""
     pattern = (
         r"uv run "
-        + re.escape(str(LINK))
+        + re.escape(str(ENGINE))
         + r" (next \S+"
         + (rf" --result {label}" if label else "")
         + r")\s*(?:\n|:)"
@@ -41,13 +41,6 @@ def hint_args(out: str, label: str | None) -> list[str]:
     m = re.search(pattern, out)
     assert m, f"no next hint for {label!r} in:\n{out}"
     return m.group(1).split()
-
-
-def test_symlink_is_relative_and_points_at_shared_engine():
-    assert LINK.is_symlink()
-    target = os.readlink(LINK)
-    assert not os.path.isabs(target)
-    assert LINK.resolve() == (ROOT / "shared" / "flow" / "flow.py").resolve()
 
 
 def test_engine_is_executable():
@@ -59,10 +52,10 @@ def test_sample_definition_lints_clean(tmp_path):
     assert res.returncode == 0 and res.stdout == "", res.stdout + res.stderr
 
 
-def test_skill_runs_the_bundled_script():
+def test_skill_runs_the_deskil_command():
     text = SKILL.read_text(encoding="utf-8")
-    assert "allowed-tools: Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*)" in text
-    assert "flow.py start" in text and "Flow complete." in text
+    assert "allowed-tools: Bash(deskil --version), Bash(deskil flow:*)" in text
+    assert "deskil flow start" in text and "Flow complete." in text
 
 
 def test_gitignore_excludes_run_state():

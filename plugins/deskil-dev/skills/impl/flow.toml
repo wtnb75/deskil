@@ -5,7 +5,7 @@ start = "pick"
 always = [
   "This skill ends at an open pull request. Never merge it, never push to the default branch, never force-push.",
   "The backlog is docs/BACKLOG.md in the current project. Change states only with `backlog.py` (set / archive).",
-  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `flow.py` still find the backlog and the run state from a subdirectory of the repository).",
+  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `deskil flow` still find the backlog and the run state from a subdirectory of the repository).",
   "Follow the project's own rules (CLAUDE.md): language of code and docs, tools, commit style.",
 ]
 

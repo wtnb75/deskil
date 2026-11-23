@@ -42,6 +42,7 @@ Claude Code の skill の多くは、手順を文章で書いた手順書にな�
 - 実装は Python 3.11 以上、**標準ライブラリのみ**。`uv run` で実行できること。
 - `flow.py` の先頭に PEP 723 のスクリプトメタデータ（`requires-python = ">=3.11"`、`dependencies = []`）を置き、`uv run` が 3.11 以上を選ぶようにする。
 - エンジンは**単一ファイル**（`flow.py`）にする。feature プラグインへ symlink で同梱するため（[`README.md`](../../../README.md) 参照）。
+  - 追記（2026-11-24）: 配布方法は [`2026-11-23-flow-distribution-design.md`](2026-11-23-flow-distribution-design.md) で、`deskil` コマンド（`uv tool install`）に変えた。symlink での同梱はやめたが、単一ファイルは保つ。
 - 同梱するため、エンジンは**プラグイン外のファイルに依存しない**。ユーザーの設定ファイルを書き換えない。
 - 状態は、作業ディレクトリ（プロジェクト）側に保存する。プラグインのキャッシュには書かない。
 - Windows は対象外（symlink を使う）。
@@ -62,7 +63,7 @@ Claude Code の skill の多くは、手順を文章で書いた手順書にな�
 shared/flow/flow.py              エンジン本体（単一ファイル、標準ライブラリのみ）
 plugins/core/                    定義の作成・レビューを助ける skill 群
 plugins/<feature>/
-  scripts/flow.py                → shared/flow/flow.py への相対 symlink
+  scripts/flow.py                → （廃止。`deskil flow …` を呼ぶ。2026-11-23-flow-distribution-design.md 参照）
   skills/<skill>/
     SKILL.md                     固定ループの短い指示だけを書く
     flow.toml                    その skill の定義

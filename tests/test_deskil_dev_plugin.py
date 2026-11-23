@@ -12,7 +12,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DEV = ROOT / "plugins" / "deskil-dev"
 SKILLS = ["add", "prio", "decide", "impl", "triage-rejected"]
 PRESENT = [s for s in SKILLS if (DEV / "skills" / s).is_dir()]
-ALLOWED_TOOLS = "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
+ALLOWED_TOOLS = (
+    "Bash(deskil --version), Bash(deskil flow:*), "
+    "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
+)
+ENGINE = ROOT / "shared" / "flow" / "flow.py"
+INSTALL = "uv tool install git+https://github.com/wtnb75/deskil"
 
 
 def frontmatter(path: Path) -> dict[str, str]:
@@ -27,7 +32,7 @@ def run_flow(*args, cwd):
         k: v for k, v in os.environ.items() if k not in ("FLOW_CMD", "FLOW_STATE_DIR")
     }
     return subprocess.run(
-        [sys.executable, str(DEV / "scripts" / "flow.py"), *map(str, args)],
+        [sys.executable, str(ENGINE), *map(str, args)],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -78,14 +83,15 @@ def test_plugin_json_names_deskil_dev():
     assert "version" not in data
 
 
-@pytest.mark.parametrize(
-    "script,target",
-    [("flow.py", "shared/flow/flow.py"), ("backlog.py", "shared/backlog/backlog.py")],
-)
-def test_scripts_are_relative_symlinks_into_shared(script, target):
-    link = DEV / "scripts" / script
+def test_backlog_script_is_a_relative_symlink_into_shared():
+    link = DEV / "scripts" / "backlog.py"
     assert link.is_symlink() and not os.path.isabs(os.readlink(link))
-    assert link.resolve() == (ROOT / target).resolve()
+    assert link.resolve() == (ROOT / "shared/backlog/backlog.py").resolve()
+
+
+def test_no_bundled_engine():
+    link = DEV / "scripts" / "flow.py"
+    assert not link.exists() and not link.is_symlink()
 
 
 # --- flow paths ------------------------------------------------------------
@@ -421,12 +427,27 @@ def test_skill_frontmatter(skill):
 def test_skill_runs_the_flow(skill):
     text = (DEV / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
     assert f"${{CLAUDE_PLUGIN_ROOT}}/skills/{skill}/flow.toml" in text
-    assert "flow.py start" in text and "Flow complete." in text
+    assert "deskil flow start" in text and "Flow complete." in text
     # The engine does not expand paths in prompts, so SKILL.md tells the LLM what `backlog.py` means.
     assert (
         "`backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`"
         in text
     )
+
+
+@pytest.mark.parametrize("skill", PRESENT)
+def test_skills_check_the_install_first(skill):
+    text = (DEV / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+    body = text.split("\n---\n", 1)[1]
+    assert "deskil --version" in body and INSTALL in body
+    assert body.index("deskil --version") < body.index("deskil flow ")
+
+
+@pytest.mark.parametrize("skill", ["add", "decide", "prio", "impl"])
+def test_flow_notes_name_the_deskil_command(skill):
+    text = (DEV / "skills" / skill / "flow.toml").read_text(encoding="utf-8")
+    assert "`backlog.py` and `deskil flow` still find" in text
+    assert "flow.py" not in text
 
 
 @pytest.mark.parametrize("skill", PRESENT)
