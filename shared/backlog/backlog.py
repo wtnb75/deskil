@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
@@ -697,9 +698,33 @@ def write_checked(path: Path, old: str, new: str) -> None:
             "refusing to write; the change would introduce: " + "; ".join(added)
         )
     try:
-        path.write_text(new, encoding="utf-8")
+        write_atomic(path, new)
     except OSError as exc:
         raise BacklogError(f"cannot write {path}: {exc.strerror or exc}") from exc
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Write `text` to a temp file next to the real target, then os.replace it into place.
+
+    A symlink is resolved first so the link itself is kept and its target is replaced. The
+    permission bits of the existing file are carried over to the new one."""
+    target = Path(os.path.realpath(path))
+    try:
+        mode: int | None = target.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        mode = None
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        if mode is not None:
+            os.chmod(tmp_name, mode)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def find_backlog(start: Path, has_ref: bool) -> Path:

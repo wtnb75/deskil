@@ -629,6 +629,46 @@ def changed_lines(before: str, after: str) -> list[tuple[str, str]]:
     return [(a, b) for a, b in zip(old, new) if a != b]
 
 
+def test_write_checked_keeps_mode_and_leaves_no_temp_file(backlog, tmp_path):
+    path = write(tmp_path, SAMPLE)
+    path.chmod(0o640)
+    backlog.write_checked(
+        path, SAMPLE, backlog.set_field(SAMPLE, "B-002", "優先度", "P2")
+    )
+    assert "- 優先度: P2" in path.read_text(encoding="utf-8")
+    assert path.stat().st_mode & 0o7777 == 0o640
+    assert [p.name for p in tmp_path.iterdir()] == ["BACKLOG.md"]
+
+
+def test_write_checked_writes_through_a_symlink(backlog, tmp_path):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real = write(real_dir, SAMPLE)
+    link = tmp_path / "link.md"
+    link.symlink_to(real)
+    backlog.write_checked(
+        link, SAMPLE, backlog.set_field(SAMPLE, "B-002", "優先度", "P2")
+    )
+    assert link.is_symlink()
+    assert "- 優先度: P2" in real.read_text(encoding="utf-8")
+    assert sorted(p.name for p in real_dir.iterdir()) == ["BACKLOG.md"]
+
+
+def test_write_checked_failure_keeps_the_original(backlog, tmp_path, monkeypatch):
+    path = write(tmp_path, SAMPLE)
+
+    def boom(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(backlog.BacklogError, match="cannot write"):
+        backlog.write_checked(
+            path, SAMPLE, backlog.set_field(SAMPLE, "B-002", "優先度", "P2")
+        )
+    assert path.read_text(encoding="utf-8") == SAMPLE
+    assert [p.name for p in tmp_path.iterdir()] == ["BACKLOG.md"]
+
+
 def test_set_replaces_only_that_line(backlog):
     out = backlog.set_field(SAMPLE, "B-002", "優先度", "P2")
     assert changed_lines(SAMPLE, out) == [("- 優先度: P1", "- 優先度: P2")]
