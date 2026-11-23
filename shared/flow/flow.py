@@ -2936,10 +2936,14 @@ def format_definition(path: Path, check: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _default_cmd() -> str:
-    """The command prefix printed in 'next' hints; copy-pasteable as is."""
+def _default_cmd(cmd: str | None = None) -> str:
+    """The command prefix printed in 'next' hints; copy-pasteable as is.
+
+    $FLOW_CMD wins, then `cmd` (how the caller was started, for example "deskil flow").
+    """
     return (
         os.environ.get("FLOW_CMD")
+        or cmd
         or f"uv run {shlex.quote(str(Path(sys.argv[0]).absolute()))}"
     )
 
@@ -2962,16 +2966,14 @@ def _state_root() -> Path:
     return Path(top) if top else Path.cwd()
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--state-dir",
         type=Path,
         help="directory for run state files (default: $FLOW_STATE_DIR or <git root>/.flow/runs, or ./.flow/runs outside a repository)",
     )
-    parser = argparse.ArgumentParser(
-        prog="flow", description="Step-by-step flow runner."
-    )
+    parser = argparse.ArgumentParser(prog=prog, description="Step-by-step flow runner.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser(
@@ -3102,8 +3104,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+def main(
+    argv: list[str] | None = None, *, prog: str = "flow", cmd: str | None = None
+) -> int:
+    """Run the CLI. `prog` names the command in the usage; `cmd` is the prefix of the 'next' hints."""
+    args = _build_parser(prog).parse_args(argv)
     try:
         if args.command == "lint":
             try:
@@ -3149,14 +3154,14 @@ def main(argv: list[str] | None = None) -> int:
             results = None
             if args.results is not None:
                 results = [r.strip() for r in args.results.split(",") if r.strip()]
-            sys.stdout.write(dry_run(args.definition, results, _default_cmd()))
+            sys.stdout.write(dry_run(args.definition, results, _default_cmd(cmd)))
             return 0
         state_dir = _resolve_state_dir(args.state_dir)
         if args.command == "start":
             out = start_run(
                 args.definition,
                 state_dir,
-                _default_cmd(),
+                _default_cmd(cmd),
                 args.ref,
                 parse_args(args.arg),
             )
@@ -3165,7 +3170,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_id,
                 args.result,
                 state_dir,
-                _default_cmd(),
+                _default_cmd(cmd),
                 args.force,
                 args.approval,
             )
