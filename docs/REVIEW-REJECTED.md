@@ -2,6 +2,11 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-023
+
+- code-review / `.github/workflows/ci.yml`: サードパーティの Action（`astral-sh/setup-uv@v5`、`arduino/setup-task@v2`）がコミット SHA でなくタグ固定。自動レビューも同じ指摘（MEDIUM）。却下: 具体的な攻撃経路がなく、強化策の範囲。`pull_request` トリガーで `permissions: contents: read`、シークレットは渡さず（`GITHUB_TOKEN` は読み取りのみ）、公開のリポジトリで害が限られる。SHA 固定は更新の運用（Dependabot など）とセットで別項目にする。
+- security-review: 上の SHA 固定のほか、指摘なし。
+
 ## B-021
 
 - simplify（simplification）/ `format_text` の位置指定のリストとタプル、パース処理の分割、`_format_entry`・`_trim_blank`・`main` の `fmt` 分岐・`_table_kind` の整理: 却下: 好みの範囲で、動作は変わらない。

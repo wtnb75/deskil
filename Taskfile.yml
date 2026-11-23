@@ -9,5 +9,14 @@ tasks:
   lint:
     desc: Lint the Python sources and check their formatting
     cmds:
-      - uv run --with ruff ruff check .
-      - uv run --with ruff ruff format --check .
+      - uv run --with ruff==0.15.9 ruff check .
+      - uv run --with ruff==0.15.9 ruff format --check .
+
+  lint-flow:
+    desc: Lint every flow definition under plugins/
+    cmds:
+      - |
+        for f in plugins/*/skills/*/flow.toml; do
+          echo "lint $f"
+          uv run shared/flow/flow.py lint "$f" || exit 1
+        done
