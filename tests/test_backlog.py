@@ -249,9 +249,12 @@ def test_list_shows_dash_for_missing_priority(backlog):
     assert "B-003  todo  -  Third" in backlog.render_list(backlog.parse(text), None)
 
 
+def ids(out):
+    return [line.split("  ")[0] for line in out.splitlines()]
+
+
 def test_list_priority_keeps_that_priority_or_higher(backlog):
     bl = backlog.parse(SAMPLE)
-    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
     assert ids(backlog.render_list(bl, None, priority="P1")) == ["B-002"]
     assert ids(backlog.render_list(bl, None, priority="P2")) == ["B-001", "B-002"]
     assert ids(backlog.render_list(bl, None, priority="P3")) == [
@@ -279,7 +282,6 @@ def test_list_limit_applies_after_sorting_and_priority_filter(backlog):
 
 def test_list_exclude_drops_items_before_limit(backlog):
     bl = backlog.parse(SAMPLE)
-    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
     assert ids(backlog.render_list(bl, None, exclude={"B-001"})) == ["B-002", "B-003"]
     assert ids(backlog.render_list(bl, None, exclude={"B-001"}, limit=1)) == ["B-002"]
     assert ids(backlog.render_list(bl, None, exclude=set())) == [
@@ -291,7 +293,6 @@ def test_list_exclude_drops_items_before_limit(backlog):
 
 def test_list_unblocked_drops_blocked_items_before_limit(backlog):
     bl = backlog.parse(SAMPLE)
-    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
     # B-002 depends on the unfinished B-001, so it is hidden.
     assert ids(backlog.render_list(bl, None, unblocked=True)) == ["B-001", "B-003"]
     # The limit counts after the blocked item is dropped.

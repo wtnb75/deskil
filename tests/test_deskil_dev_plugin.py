@@ -32,6 +32,7 @@ def run_flow(*args, cwd):
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
 
 
@@ -467,7 +468,7 @@ def test_run_commands_work_in_the_project(skill, state, args):
         a.replace("${DEF_DIR}", str(DEV / "skills" / skill))
         for a in flow_states(skill)[state]["run"]
     ]
-    res = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
+    res = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stdout + res.stderr
     if args == ["next-id"]:
         assert res.stdout.startswith("B-")
