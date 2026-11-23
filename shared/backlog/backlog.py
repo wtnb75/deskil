@@ -186,9 +186,11 @@ def render_list(
     priority: str | None = None,
     limit: int | None = None,
     exclude: set[str] | None = None,
+    unblocked: bool = False,
 ) -> str:
     """Render the sorted list. `priority` keeps that priority or higher (items without one are dropped);
-    `exclude` drops the given item ids; `limit` keeps the first N rows after sorting and filtering."""
+    `exclude` drops the given item ids; `unblocked` drops items that have an unfinished dependency;
+    `limit` keeps the first N rows after sorting and filtering."""
     if priority is not None and priority not in PRIORITIES:
         raise BacklogError(
             f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})"
@@ -206,13 +208,15 @@ def render_list(
         ]
     if exclude:
         items = [i for i in items if i.id not in exclude]
+    if unblocked:
+        items = [i for i in items if not blocked_by(bl, i)]
     if limit is not None:
         items = items[:limit]
     rows = []
     for item in items:
         state = item.get("状態") or "-"
         row = f"{item.id}  {state}  {item.get('優先度') or '-'}  {item.title}"
-        if state in DEFAULT_STATUSES:
+        if state in DEFAULT_STATUSES and not unblocked:
             blockers = blocked_by(bl, item)
             if blockers:
                 row += f"  [blocked by {', '.join(blockers)}]"
@@ -580,9 +584,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="hide items that have a backlog/<ID>-* branch on origin (run `git fetch --prune origin` first)",
     )
     p_list.add_argument(
+        "--unblocked",
+        action="store_true",
+        help="hide items that have an unfinished dependency",
+    )
+    p_list.add_argument(
         "--limit",
         type=int,
-        help="show only the first N items (after sorting, --priority and --not-started)",
+        help="show only the first N items (after sorting, --priority, --not-started and --unblocked)",
     )
 
     p_show = sub.add_parser("show", help="print one item")
@@ -644,7 +653,9 @@ def run(args: argparse.Namespace) -> int:
         else:
             statuses = None
         exclude = started_ids() if args.not_started else None
-        out = render_list(bl, statuses, args.priority, args.limit, exclude)
+        out = render_list(
+            bl, statuses, args.priority, args.limit, exclude, args.unblocked
+        )
         if out:
             print(out)
     elif args.command == "show":

@@ -2,6 +2,16 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-028
+
+- simplify（altitude）/ `plugins/deskil-dev/skills/decide/flow.toml` の `pick`: バッチで外した blocked 項目を伝えるのに、`--unblocked` なしの `list` との見比べをモデルに任せている。`--blocked-only` などで出すべき。却下: B-028 の判断が「`--unblocked` なしの `list` と見比べて調べる」と決めている。必要になれば別項目にする。
+- simplify（altitude）/ `shared/backlog/backlog.py` `render_list`: 位置引数が増えたので、フィルターの引数をキーワード専用にまとめるべき。却下: 見た目の整理で、動作は変わらず、既存の `exclude` と同じ形。
+- simplify（efficiency）/ `blocked_by` が呼ぶたびに `by_id` を作り直し、一覧が O(n²) になる。却下: 既存の挙動で、バックログの規模では差が出ない。
+- simplify（simplification）/ `tests/test_backlog.py`: `ids` のラムダ（`# noqa: E731`）をモジュールの関数にまとめる。却下: 既存のテストも同じ書き方で、好みの範囲。
+- simplify（simplification）/ `test_list_unblocked_drops_blocked_items_before_limit` の `limit=2` が、上限なしと同じ結果で意味がない。却下: 誤り。上限を先に適用すると B-001 と B-002 が残り、B-002 を除くと `["B-001"]` になるので、`["B-001", "B-003"]` の期待は「絞り込みの後に数える」ことを確かめている。
+- code-review・simplify（reuse）・security-review: 指摘なし。
+- 修正: simplify（efficiency）の「`--unblocked` のとき、行の組み立てで `blocked_by` を再び呼ぶ」は採用し、修正した。
+
 ## B-023
 
 - code-review / `.github/workflows/ci.yml`: サードパーティの Action（`astral-sh/setup-uv@v5`、`arduino/setup-task@v2`）がコミット SHA でなくタグ固定。自動レビューも同じ指摘（MEDIUM）。却下: 具体的な攻撃経路がなく、強化策の範囲。`pull_request` トリガーで `permissions: contents: read`、シークレットは渡さず（`GITHUB_TOKEN` は読み取りのみ）、公開のリポジトリで害が限られる。SHA 固定は更新の運用（Dependabot など）とセットで別項目にする。

@@ -184,6 +184,34 @@ def test_list_exclude_drops_items_before_limit(backlog):
     ]
 
 
+def test_list_unblocked_drops_blocked_items_before_limit(backlog):
+    bl = backlog.parse(SAMPLE)
+    ids = lambda out: [line.split("  ")[0] for line in out.splitlines()]  # noqa: E731
+    # B-002 depends on the unfinished B-001, so it is hidden.
+    assert ids(backlog.render_list(bl, None, unblocked=True)) == ["B-001", "B-003"]
+    # The limit counts after the blocked item is dropped.
+    assert ids(backlog.render_list(bl, None, unblocked=True, limit=2)) == [
+        "B-001",
+        "B-003",
+    ]
+    assert ids(backlog.render_list(bl, None, priority="P1", unblocked=True)) == []
+    # Without the option the blocked item stays (and is marked).
+    assert "B-002" in backlog.render_list(bl, None)
+
+
+def test_list_unblocked_keeps_items_whose_dependency_is_done(backlog):
+    done_dep = SAMPLE.replace("- 状態: ready", "- 状態: done")
+    out = backlog.render_list(backlog.parse(done_dep), None, unblocked=True)
+    assert "B-002" in out
+
+
+def test_list_unblocked_cli(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "list", "--unblocked"]) == 0
+    out = capsys.readouterr().out
+    assert [line.split("  ")[0] for line in out.splitlines()] == ["B-001", "B-003"]
+
+
 def test_started_ids_reads_only_remote_backlog_branches(backlog, tmp_path, monkeypatch):
     import subprocess
 
