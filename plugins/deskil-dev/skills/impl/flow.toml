@@ -25,16 +25,47 @@ goto = "prepare"
 [[states.pick.choices]]
 label = "none"
 when = "No ready and unblocked item exists, or the named item cannot be implemented now"
+goto = "offer_decide"
+
+[states.offer_decide]
+prompt = """No ready item can be implemented now. Check whether a todo item could be decided instead:
+`backlog.py --ref origin/<default branch> list --status todo --unblocked`.
+If the user named an item that is not ready, it is the candidate; otherwise the first one in the list is.
+If there is a candidate, ask the user whether to decide it now (show its ID and title) and wait for the answer:
+a decision starts a discussion, so never begin it without their yes. Decide only that one item (a single item, not a batch).
+Choose `no` if there is no candidate or the user declines."""
+
+[[states.offer_decide.choices]]
+label = "yes"
+when = "A todo candidate exists and the user agreed to decide it now"
+goto = "decide"
+
+[[states.offer_decide.choices]]
+label = "no"
+when = "There is no todo candidate, or the user declined"
 goto = "report_none"
+
+[states.decide]
+include = "decide-part.toml"
+exits = { report_ready = "after_decide", report = "report_none", report_none = "report_none", report_fail = "report_decide_fail" }
+
+[states.after_decide]
+prompt = """The decision is now written in the working tree's docs/BACKLOG.md (uncommitted): the item is ready.
+Note its ID (it is the item you offered, and only that one is decided here), and read its 判断 with `backlog.py show <ID>`:
+it is the approach to implement. The next step cuts the work branch and keeps this uncommitted backlog change,
+which goes into the single commit of the commit step."""
+goto = "prepare"
 
 [states.prepare]
 prompt = """Make sure the working tree is clean (`git status --short` prints nothing).
-If the tree is not clean, stop here: tell the user and do not run the next command.
+The only change allowed is an uncommitted docs/BACKLOG.md from the decide step; the switch below carries it to the new branch.
+If anything else is changed, stop here: tell the user and do not run the next command.
 Run `git fetch origin`, then find the default branch with `git symbolic-ref --short refs/remotes/origin/HEAD`
 (it prints `origin/<default branch>`). If that fails, stop and ask the user which branch to start from.
 Create the branch from the fetched remote branch, not from the local one:
 `git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track`
 (slug: the item title as lowercase ASCII words joined by hyphens). Do not update the local default branch.
+If the switch refuses because the carried docs/BACKLOG.md change conflicts with origin, do not force it: stop and tell the user.
 If a worktree skill or tool is available, you may create the branch in a worktree from the same start point instead."""
 goto = "plan"
 
@@ -177,6 +208,11 @@ end = true
 [states.report_none]
 prompt = """Tell the user that no item can be implemented now and why (nothing is ready, every ready item is blocked,
 or the named item is not ready). If a todo item is the candidate, suggest decide to make it ready."""
+end = true
+
+[states.report_decide_fail]
+prompt = """Tell the user that the decision could not be recorded cleanly (the backlog still fails lint), and list the problems.
+Do not start the implementation."""
 end = true
 
 [states.report_fail]

@@ -98,8 +98,13 @@ prompt = """The command below is `backlog.py lint`: exit code 0 and no output me
 If the step says the command was not executed, run `backlog.py lint` yourself."""
 
 [[states.lint.choices]]
-label = "ok"
-when = "lint exited 0 and printed nothing"
+label = "ok_ready"
+when = "lint exited 0 and printed nothing, and at least one item was made ready"
+goto = "report_ready"
+
+[[states.lint.choices]]
+label = "ok_not_ready"
+when = "lint exited 0 and printed nothing, and no item was made ready (all dropped or deferred)"
 goto = "report"
 
 [[states.lint.choices]]
@@ -116,6 +121,12 @@ on_exceed = "report_fail"
 [states.report]
 prompt = """Tell the user what was decided for each item (ready, dropped or still open), and show each item with
 `backlog.py show <ID>` (for dropped items it is in the done / dropped section). In a batch, end with a summary table."""
+end = true
+
+[states.report_ready]
+prompt = """Tell the user what was decided for each item (ready, dropped or still open), and show each item with
+`backlog.py show <ID>` (for dropped items it is in the done / dropped section). In a batch, end with a summary table.
+At least one item is now ready."""
 end = true
 
 [states.report_none]

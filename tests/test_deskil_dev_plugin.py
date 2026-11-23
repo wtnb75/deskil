@@ -130,23 +130,23 @@ def test_prioritize_lint_failures_end_unchanged_report(tmp_path):
 
 def test_decide_paths(tmp_path):
     head = ["pick", "investigate", "options", "confirm"]
-    out = dry_run("decide", ["found", "ready", "done", "ok"], tmp_path)
+    out = dry_run("decide", ["found", "ready", "done", "ok_ready"], tmp_path)
     assert visited(out) == head + [
         "record",
         "write_decision",
         "record",
         "lint",
-        "report",
+        "report_ready",
     ]
-    out = dry_run("decide", ["found", "dropped", "done", "ok"], tmp_path)
+    out = dry_run("decide", ["found", "dropped", "done", "ok_not_ready"], tmp_path)
     assert visited(out) == head + ["record", "drop", "record", "lint", "report"]
-    out = dry_run("decide", ["found", "defer", "done", "ok"], tmp_path)
+    out = dry_run("decide", ["found", "defer", "done", "ok_not_ready"], tmp_path)
     assert visited(out) == head + ["record", "note_open", "record", "lint", "report"]
     assert visited(dry_run("decide", ["none"], tmp_path)) == ["pick", "report_none"]
 
 
 def test_decide_mixed_outcomes_are_recorded_one_by_one(tmp_path):
-    choices = ["found", "ready", "dropped", "defer", "done", "ok"]
+    choices = ["found", "ready", "dropped", "defer", "done", "ok_ready"]
     out = dry_run("decide", choices, tmp_path)
     assert visited(out)[4:] == [
         "record",
@@ -157,7 +157,7 @@ def test_decide_mixed_outcomes_are_recorded_one_by_one(tmp_path):
         "note_open",
         "record",
         "lint",
-        "report",
+        "report_ready",
     ]
 
 
@@ -327,8 +327,41 @@ def test_implement_failure_limit_skips_the_pr(tmp_path):
     assert "open_pr" not in visited(out)
 
 
-def test_implement_with_nothing_ready_stops_early(tmp_path):
-    assert visited(dry_run("impl", ["none"], tmp_path)) == ["pick", "report_none"]
+def test_implement_with_nothing_ready_offers_decide_then_stops_on_no(tmp_path):
+    out = dry_run("impl", ["none", "no"], tmp_path)
+    assert visited(out) == ["pick", "offer_decide", "report_none"]
+
+
+def test_implement_decides_a_todo_and_goes_on_to_implement(tmp_path):
+    choices = ["none", "yes", "found", "ready", "done", "ok_ready", "pass", "skip"]
+    out = visited(dry_run("impl", choices, tmp_path))
+    assert out[:2] == ["pick", "offer_decide"]
+    assert out[2:4] == ["decide__pick", "decide__investigate"]
+    i = out.index("decide__lint")
+    assert out[i + 1 : i + 4] == ["after_decide", "prepare", "plan"]
+    assert out[-1] == "report"
+
+
+@pytest.mark.parametrize(
+    ("choices", "end"),
+    [
+        (["found", "dropped", "done", "ok_not_ready"], "report_none"),
+        (["none"], "report_none"),
+        (
+            ["found", "ready", "done", "errors", "errors", "errors"],
+            "report_decide_fail",
+        ),
+    ],
+)
+def test_implement_ends_when_decide_makes_nothing_ready(tmp_path, choices, end):
+    out = visited(dry_run("impl", ["none", "yes", *choices], tmp_path))
+    assert out[-1] == end
+    assert "prepare" not in out
+
+
+def test_implement_prepare_allows_only_the_decided_backlog_change(tmp_path):
+    step = prepare_step(tmp_path)
+    assert "docs/BACKLOG.md" in step and "stop" in step
 
 
 # --- skills (the ones that exist so far) -----------------------------------
