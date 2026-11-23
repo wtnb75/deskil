@@ -859,3 +859,50 @@ def test_cli_empty_file_lists_nothing(backlog, tmp_path, capsys):
 
 def test_script_is_executable():
     assert os.access(ROOT / "shared" / "backlog" / "backlog.py", os.X_OK)
+
+
+def test_default_file_is_found_from_a_subdirectory(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    repo = _repo_with_backlog(tmp_path, SAMPLE)
+    sub = repo / "plugins" / "x"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+    assert backlog.main(["show", "B-001"]) == 0
+    assert "B-001" in capsys.readouterr().out
+    assert backlog.main(["--ref", "main", "show", "B-001"]) == 0
+
+
+def test_default_file_search_stops_at_the_git_root(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/BACKLOG.md").write_text(SAMPLE, encoding="utf-8")
+    inner = tmp_path / "inner"
+    (inner / "sub").mkdir(parents=True)
+    _git(inner, "init", "-q", "-b", "main")
+    monkeypatch.chdir(inner / "sub")
+    assert backlog.main(["list"]) == 2
+    err = capsys.readouterr().err
+    assert str(inner / "sub") in err
+
+
+def test_default_file_outside_a_repo_is_cwd_relative(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    monkeypatch.chdir(tmp_path)
+    assert backlog.main(["list"]) == 2
+    assert str(tmp_path) in capsys.readouterr().err
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/BACKLOG.md").write_text(SAMPLE, encoding="utf-8")
+    assert backlog.main(["show", "B-001"]) == 0
+
+
+def test_explicit_file_is_not_searched(backlog, tmp_path, monkeypatch, capsys):
+    repo = _repo_with_backlog(tmp_path, SAMPLE)
+    sub = repo / "sub"
+    sub.mkdir()
+    monkeypatch.chdir(sub)
+    assert backlog.main(["--file", "docs/BACKLOG.md", "list"]) == 2
+    assert backlog.main(["--file", str(repo / "docs/BACKLOG.md"), "list"]) == 0

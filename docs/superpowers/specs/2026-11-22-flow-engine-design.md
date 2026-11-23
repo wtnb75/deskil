@@ -161,7 +161,7 @@ exits = { ok = "review", fail = "fix" }   # 部品の終了ステートID = こ�
 
 ## 7. 状態ファイル
 
-- 場所: 作業ディレクトリの `.flow/runs/<run-id>.json`（`.gitignore` へ追加を推奨）。
+- 場所: git のルート（リポジトリ外では作業ディレクトリ）の `.flow/runs/<run-id>.json`（`.gitignore` へ追加を推奨）。
 - 内容: `schema`、定義ファイルのパスとハッシュ、現在のステート、各ステートの訪問回数、履歴（ステート・選んだラベル・時刻）、状態（`running` / `ended`）。
 - run-id はエンジンが採番する（時刻 + 短い乱数）。複数の run を並行して持てる。
 

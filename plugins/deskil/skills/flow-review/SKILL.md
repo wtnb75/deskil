@@ -31,7 +31,7 @@ as written.
 
 ## Debug a run
 
-1. Find the run id in the earlier output (`[state] (run: <id>)`), or list `.flow/runs/`.
+1. Find the run id in the earlier output (`[state] (run: <id>)`), or list `.flow/runs/` at the git root.
 2. Run `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py status <id>`. Compare `History` and `Visits` with what should have happened.
    The first step where the reported result does not match the work is the likely cause.
 3. Decide whether the fault is in the definition (a vague `when`, a missing

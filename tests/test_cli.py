@@ -171,3 +171,15 @@ def test_default_cmd_prefix_quotes_a_path_with_spaces(flow, env, capsys, monkeyp
     monkeypatch.setattr(sys, "argv", ["/opt/my p/flow.py"])
     _, out = start(flow, env, capsys)
     assert "  uv run '/opt/my p/flow.py' next " in out
+
+
+def test_default_state_dir_is_the_git_root(flow, env, tmp_path, monkeypatch):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    (repo / "sub").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    monkeypatch.chdir(repo / "sub")
+    assert flow.main(["start", str(env[0])]) == 0
+    assert list((repo / ".flow" / "runs").glob("*.json"))
+    assert not (repo / "sub" / ".flow").exists()

@@ -623,7 +623,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="backlog.py", description="Read and edit the project backlog."
     )
     parser.add_argument(
-        "--file", default=DEFAULT_FILE, help=f"backlog file (default: {DEFAULT_FILE})"
+        "--file",
+        help=f"backlog file (default: {DEFAULT_FILE}, searched upward from the current directory up to the git root)",
     )
     parser.add_argument(
         "--ref",
@@ -701,8 +702,27 @@ def write_checked(path: Path, old: str, new: str) -> None:
         raise BacklogError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
 
+def find_backlog(start: Path, has_ref: bool) -> Path:
+    """Locate DEFAULT_FILE by walking up from `start`, stopping at the git root (a `.git` directory
+    or file). Outside a repository only `start` itself is checked. With `has_ref` the file need not
+    exist in the working tree, so the git root is used when nothing is found."""
+    start = start.resolve()
+    chain = (start, *start.parents)
+    root = next((d for d in chain if (d / ".git").exists()), None)
+    for d in chain:
+        if (d / DEFAULT_FILE).is_file():
+            return d / DEFAULT_FILE
+        if d == (root or start):
+            break
+    if has_ref and root:
+        return root / DEFAULT_FILE
+    raise BacklogError(
+        f"{DEFAULT_FILE} not found (searched from {start} up to the git root; use --file)"
+    )
+
+
 def run(args: argparse.Namespace) -> int:
-    path = Path(args.file)
+    path = Path(args.file) if args.file else find_backlog(Path.cwd(), bool(args.ref))
     if args.ref:
         if args.command in ("set", "archive"):
             raise BacklogError(
@@ -731,7 +751,9 @@ def run(args: argparse.Namespace) -> int:
     elif args.command == "lint":
         problems = lint(bl)
         for problem in problems:
-            print(f"{args.file}:{problem.line}: {problem.message}")
+            print(
+                f"{args.file or os.path.relpath(path)}:{problem.line}: {problem.message}"
+            )
         return 1 if problems else 0
     elif args.command == "set":
         write_checked(path, text, set_field(text, args.id, args.key, args.value))
