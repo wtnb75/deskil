@@ -4,7 +4,7 @@ start = "survey"
 [notes]
 always = [
   "The backlog is docs/BACKLOG.md in the current project. Change priorities only with `backlog.py set <ID> 優先度 <P>`.",
-  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `flow.py` still find the backlog and the run state from a subdirectory of the repository).",
+  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `deskil flow` still find the backlog and the run state from a subdirectory of the repository).",
   "Never edit the backlog before the user has approved the proposal.",
 ]
 
