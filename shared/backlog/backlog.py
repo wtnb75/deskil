@@ -290,7 +290,7 @@ def render_list(
 
 
 def started_ids() -> set[str]:
-    """Ids of items that already have a `backlog/<ID>-*` branch on origin (as of the last `git fetch --prune`;
+    """Ids of items that already have a `backlog/<ID>` branch on origin (a legacy `backlog/<ID>-<slug>` also counts; as of the last `git fetch --prune`;
     without `--prune`, refs of branches deleted on origin linger and keep their items hidden).
     Local-only branches are ignored on purpose: leftovers of merged or abandoned work would hide items."""
     try:
@@ -649,7 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--not-started",
         action="store_true",
-        help="hide items that have a backlog/<ID>-* branch on origin (run `git fetch --prune origin` first)",
+        help="hide items that have a backlog/<ID> branch on origin (run `git fetch --prune origin` first)",
     )
     p_list.add_argument(
         "--unblocked",
