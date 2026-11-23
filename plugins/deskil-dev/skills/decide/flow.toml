@@ -13,11 +13,11 @@ always = [
 prompt = """Read the scope from the user's request:
 - An item ID: decide that one item.
 - A batch such as `top 10` (the first 10 by priority) or `P2 10` (the first 10 of priority P2 or higher):
-  run `backlog.py list --status todo [--priority P2] [--limit 10]`. The script does the counting and the priority
-  filter, so use its output as is and do not count yourself.
-- Nothing named: run `backlog.py list --status todo` and take the first item that is not marked blocked
+  run `backlog.py list --status todo --unblocked [--priority P2] [--limit 10]`. The script does the counting, the
+  priority filter and the exclusion of blocked items, so use its output as is and do not count yourself.
+- Nothing named: run `backlog.py list --status todo --unblocked` and take the first item
   (the list is ordered by priority).
-In a batch, leave out blocked items and say which ones you left out."""
+In a batch, to tell the user which blocked items were left out, compare with the same command without `--unblocked`."""
 
 [[states.pick.choices]]
 label = "found"
