@@ -157,7 +157,9 @@ goto = "open_pr"
 
 [states.open_pr]
 prompt = """Push the branch and create the pull request with `gh pr create`: the title names the item (ID and title),
-the body summarizes the change and the test results. Do not merge it. Note the PR number and URL."""
+the body summarizes the change and the test results. Do not merge it. Note the PR number and URL.
+Write the PR title and body in the language the project's rules (CLAUDE.md) set for documents under `docs/`.
+If no such rule is found, write them in Japanese. Commit messages and code comments stay in English."""
 goto = "back_to_default"
 
 [states.back_to_default]
