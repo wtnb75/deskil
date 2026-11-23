@@ -130,26 +130,40 @@ def test_prioritize_lint_failures_end_unchanged_report(tmp_path):
 
 def test_decide_paths(tmp_path):
     head = ["pick", "investigate", "options", "confirm"]
-    assert visited(dry_run("decide", ["found", "ready", "ok"], tmp_path)) == head + [
+    out = dry_run("decide", ["found", "ready", "done", "ok"], tmp_path)
+    assert visited(out) == head + [
+        "record",
         "write_decision",
+        "record",
         "lint",
         "report",
     ]
-    assert visited(dry_run("decide", ["found", "dropped", "ok"], tmp_path)) == head + [
-        "drop",
-        "lint",
-        "report",
-    ]
-    assert visited(dry_run("decide", ["found", "defer", "ok"], tmp_path)) == head + [
-        "note_open",
-        "lint",
-        "report",
-    ]
+    out = dry_run("decide", ["found", "dropped", "done", "ok"], tmp_path)
+    assert visited(out) == head + ["record", "drop", "record", "lint", "report"]
+    out = dry_run("decide", ["found", "defer", "done", "ok"], tmp_path)
+    assert visited(out) == head + ["record", "note_open", "record", "lint", "report"]
     assert visited(dry_run("decide", ["none"], tmp_path)) == ["pick", "report_none"]
 
 
+def test_decide_mixed_outcomes_are_recorded_one_by_one(tmp_path):
+    choices = ["found", "ready", "dropped", "defer", "done", "ok"]
+    out = dry_run("decide", choices, tmp_path)
+    assert visited(out)[4:] == [
+        "record",
+        "write_decision",
+        "record",
+        "drop",
+        "record",
+        "note_open",
+        "record",
+        "lint",
+        "report",
+    ]
+
+
 def test_decide_lint_failures_end_in_report_fail(tmp_path):
-    out = dry_run("decide", ["found", "ready", "errors", "errors", "errors"], tmp_path)
+    choices = ["found", "ready", "done", "errors", "errors", "errors"]
+    out = dry_run("decide", choices, tmp_path)
     assert visited(out)[-1] == "report_fail"
 
 
