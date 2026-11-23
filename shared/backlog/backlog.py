@@ -11,9 +11,11 @@ Single file, standard library only (Python 3.11+).
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -140,9 +142,72 @@ def find_item(bl: Backlog, item_id: str) -> Item:
     raise BacklogError(f"unknown item: {item_id}")
 
 
-def next_id(bl: Backlog) -> str:
+def next_id(bl: Backlog, other_numbers: Iterable[int] = ()) -> str:
+    """The id after the highest one in `bl` and in `other_numbers` (ids seen elsewhere, e.g. on origin)."""
     numbers = [int(i.id[2:]) for i in bl.items]
+    numbers.extend(other_numbers)
     return f"B-{max(numbers, default=0) + 1:03d}"
+
+
+# Pre-merge work branches whose backlog may hold ids that are not on the default branch yet.
+PENDING_BRANCH_PREFIXES = ("refs/remotes/origin/backlog/", "refs/remotes/origin/docs/")
+MAX_PENDING_BRANCHES = 20
+
+
+def ref_spec(ref: str, path: Path) -> str:
+    """`<ref>:./<path>` for git: the `./` makes git resolve the path from the current directory
+    (not the repository root); an absolute path is first made relative to the current directory."""
+    return f"{ref}:./{Path(os.path.relpath(path)).as_posix()}"
+
+
+def _git_output(*args: str) -> str | None:
+    """stdout of a git command, or None when it fails (not a repository, no such ref, ...)."""
+    try:
+        proc = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return proc.stdout
+
+
+def remote_id_numbers(path: Path) -> set[int]:
+    """Item numbers found in the backlog on origin: the default branch and the newest pre-merge work branches.
+    Best effort and read-only: it uses the refs of the last `git fetch`; outside a repository, or without
+    an origin, it returns an empty set. Branches that do not have the backlog file are skipped."""
+    branches = _git_output(
+        "for-each-ref",
+        "--sort=-committerdate",
+        f"--count={MAX_PENDING_BRANCHES}",
+        "--format=%(refname)",
+        *PENDING_BRANCH_PREFIXES,
+    )
+    if branches is None:  # not a git repository
+        return set()
+    head = (_git_output("symbolic-ref", "refs/remotes/origin/HEAD") or "").strip()
+    if head:
+        refs = [head]
+    else:
+        # origin/HEAD is not set (e.g. `git remote add` without a clone): guess the usual names
+        refs = ["refs/remotes/origin/main", "refs/remotes/origin/master"]
+        if "origin" in (_git_output("remote") or "").split():
+            print(
+                "warning: origin/HEAD is not set, so next-id guesses origin/main and origin/master "
+                "(run `git remote set-head origin --auto`)",
+                file=sys.stderr,
+            )
+    numbers: set[int] = set()
+    for ref in [*refs, *branches.split()]:
+        try:
+            _, bl = read_backlog_ref(ref, path)
+        except BacklogError:  # a branch without the backlog file, or no such ref
+            continue
+        numbers.update(int(i.id[2:]) for i in bl.items)
+    return numbers
 
 
 def dependencies(item: Item) -> list[str]:
@@ -530,7 +595,7 @@ def archive_item(
 
 def read_backlog_ref(ref: str, path: Path) -> tuple[str, Backlog]:
     """Read the backlog as committed at a git ref (e.g. `origin/main`), ignoring the working tree."""
-    spec = f"{ref}:{path.as_posix()}"
+    spec = ref_spec(ref, path)
     try:
         proc = subprocess.run(
             ["git", "show", spec],
@@ -566,7 +631,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("next-id", help="print the next free item id")
+    sub.add_parser(
+        "next-id",
+        help="print the next free item id (also checks origin, as of the last fetch)",
+    )
 
     p_list = sub.add_parser("list", help="list items by state, priority and id")
     group = p_list.add_mutually_exclusive_group()
@@ -644,7 +712,7 @@ def run(args: argparse.Namespace) -> int:
     else:
         text, bl = read_backlog(path)
     if args.command == "next-id":
-        print(next_id(bl))
+        print(next_id(bl, remote_id_numbers(path)))
     elif args.command == "list":
         if args.all:
             statuses: set[str] | None = set(STATES)

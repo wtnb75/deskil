@@ -1,6 +1,7 @@
 """Tests for shared/backlog/backlog.py."""
 
 import os
+import subprocess
 from datetime import date
 from pathlib import Path
 
@@ -98,6 +99,110 @@ def test_parse_reports_malformed_headings(backlog):
 def test_next_id(backlog):
     assert backlog.next_id(backlog.parse(SAMPLE)) == "B-005"
     assert backlog.next_id(backlog.parse("# バックログ\n")) == "B-001"
+    assert backlog.next_id(backlog.parse(SAMPLE), {7, 2}) == "B-008"
+    assert backlog.next_id(backlog.parse(SAMPLE), {2}) == "B-005"
+
+
+def _git(cwd, *args, date=None):
+    env = {**os.environ}
+    if date:
+        env["GIT_COMMITTER_DATE"] = date
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        env=env,
+    )
+
+
+def _item(n: int) -> str:
+    return (
+        SAMPLE
+        + f"\n### B-{n:03d} Remote\n- 状態: todo\n- 追加: 2026-01-01\n- 背景: b\n- 概要: s\n"
+    )
+
+
+def _origin_and_clone(tmp_path, branches):
+    """An origin whose main holds SAMPLE; `branches` maps a branch name to the id it adds
+    (None: the branch deletes the backlog). Returns the clone, whose cwd tests should use."""
+    remote = tmp_path / "remote"
+    work = tmp_path / "work"
+    remote.mkdir()
+    _git(remote, "init", "-q", "-b", "main")
+    (remote / "docs").mkdir()
+    (remote / "docs/BACKLOG.md").write_text(SAMPLE, encoding="utf-8")
+    _git(remote, "add", ".")
+    _git(remote, "commit", "-q", "-m", "x")
+    for day, (name, n) in enumerate(branches.items(), start=1):
+        _git(remote, "switch", "-q", "-c", name, "main")
+        if n is None:
+            _git(remote, "rm", "-q", "docs/BACKLOG.md")
+        else:
+            (remote / "docs/BACKLOG.md").write_text(_item(n), encoding="utf-8")
+        _git(remote, "commit", "-q", "-am", name, date=f"2026-01-{day:02d}T00:00:00")
+        _git(remote, "switch", "-q", "main")
+    _git(tmp_path, "clone", "-q", str(remote), str(work))
+    return work
+
+
+def test_remote_id_numbers_reads_default_and_pending_branches(
+    backlog, tmp_path, monkeypatch
+):
+    work = _origin_and_clone(
+        tmp_path,
+        {"backlog/B-011-x": 11, "docs/y": 12, "feature/z": 99, "backlog/no-file": None},
+    )
+    monkeypatch.chdir(work)
+    found = backlog.remote_id_numbers(Path("docs/BACKLOG.md"))
+    # main (SAMPLE) and the pending branches are read; feature/* is ignored; a branch without the file is skipped
+    assert {1, 2, 3, 4, 11, 12} <= found
+    assert 99 not in found
+
+
+def test_remote_id_numbers_keeps_only_the_newest_branches(
+    backlog, tmp_path, monkeypatch
+):
+    work = _origin_and_clone(tmp_path, {"backlog/old": 20, "backlog/new": 21})
+    monkeypatch.setattr(backlog, "MAX_PENDING_BRANCHES", 1)
+    monkeypatch.chdir(work)
+    found = backlog.remote_id_numbers(Path("docs/BACKLOG.md"))
+    assert found & {20, 21} == {21}
+
+
+def test_remote_id_numbers_works_from_a_subdirectory_and_with_an_absolute_path(
+    backlog, tmp_path, monkeypatch
+):
+    work = _origin_and_clone(tmp_path, {"backlog/B-030-x": 30})
+    monkeypatch.chdir(work / "docs")
+    assert 30 in backlog.remote_id_numbers(Path("BACKLOG.md"))
+    assert 30 in backlog.remote_id_numbers(work / "docs/BACKLOG.md")
+
+
+def test_remote_id_numbers_guesses_main_without_origin_head(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    work = _origin_and_clone(tmp_path, {})
+    _git(work, "remote", "set-head", "origin", "-d")
+    monkeypatch.chdir(work)
+    assert {1, 2, 3, 4} <= backlog.remote_id_numbers(Path("docs/BACKLOG.md"))
+    assert "origin/HEAD is not set" in capsys.readouterr().err
+
+
+def test_remote_id_numbers_outside_a_repo_is_empty(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    assert backlog.remote_id_numbers(Path("docs/BACKLOG.md")) == set()
+    assert capsys.readouterr().err == ""
+
+
+def test_next_id_cli_sees_origin_ids(backlog, tmp_path, monkeypatch, capsys):
+    path = write(tmp_path, SAMPLE)
+    monkeypatch.setattr(backlog, "remote_id_numbers", lambda p: {40})
+    assert backlog.main(["--file", str(path), "next-id"]) == 0
+    assert capsys.readouterr().out == "B-041\n"
 
 
 # --- list ------------------------------------------------------------------
@@ -713,7 +818,8 @@ def test_real_backlog_has_priorities_and_known_dependencies(backlog):
 # --- CLI -------------------------------------------------------------------
 
 
-def test_cli_list_and_next_id(backlog, tmp_path, capsys):
+def test_cli_list_and_next_id(backlog, tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(backlog, "remote_id_numbers", lambda path: set())
     path = write(tmp_path, SAMPLE)
     assert backlog.main(["--file", str(path), "list"]) == 0
     assert capsys.readouterr().out.startswith("B-001  ready  P2  First\n")

@@ -125,14 +125,6 @@
 - 概要: 手順と分岐がはっきりしている `flow-convert` と `flow-export` から、`flow-convert` のスキルで flow 定義に変換する。変換の対象を 4 つすべてにするか、手順が一直線に近い `flow-author` / `flow-review` は通常のスキルのままにするかは未決。変換後は、手順の対応表をユーザーが確認し、`lint` と `dry-run` を通す。
 - 判断: `flow-convert` と `flow-export` の 2 つを flow 定義に変換する（2026-11-23）。`flow-convert` のスキルを使い、対応表をユーザーが確認し、`lint` と `dry-run` を通す。`flow-author` / `flow-review` は一直線に近く、flow 化でトークンが増えるおそれがあるため通常のスキルのままにする（効果は B-014 で測れる）。
 
-### B-042 backlog: next-id が origin の ID も見る
-- 状態: ready
-- 優先度: P1
-- 追加: 2026-11-22
-- 背景: `backlog.py next-id` は作業ツリーの `docs/BACKLOG.md` だけを見る。ローカルのデフォルトブランチが origin より遅れていると、origin にすでにある ID（B-039 / B-040）を返した。マージ前の PR のブランチで足された ID とも衝突しうる。気づけたのは、別に `--ref origin/main` で一覧を見ていたからで、偶然だった。
-- 概要: `next-id` に `--ref` を付け、作業ツリーと `origin/<default branch>` の ID の最大値の次を返す。マージ前の PR のブランチ（`origin/backlog/*`、`origin/docs/*`）の `docs/BACKLOG.md` も見るかは未決（見ると PR 同士の衝突も防げるが、ブランチが増えると遅くなるので、対象や件数を絞る）。`lint` で origin の別項目との ID の重複を検出する案（`lint --against <ref>`）は、必要になってから別項目にする。
-- 判断: `next-id` が、作業ツリー、`origin/<default branch>`、`origin/backlog/*`、`origin/docs/*` の `docs/BACKLOG.md` の ID の最大値の次を返す（2026-11-23）。PR 同士の衝突も防ぐため、マージ前のブランチも見る。ブランチは新しい順に最大 20 本に絞る（件数は実装時に調整してよい）。`lint --against` は別項目。
-
 ### B-043 add: 追記の前に fetch して origin から作業ブランチを切る
 - 状態: ready
 - 優先度: P1
@@ -441,4 +433,13 @@
 - 背景: `decide` の `options` の指示は、1 件のときだけ「2〜3 個の案とトレードオフを出す」と書いてあり、複数件のときは「項目ごとに、推奨する結果・方針 1 行・理由の表」しかない。そのため、未決点のある項目を相談の材料にせず、defer と推奨する方向に流れた（P2 の 10 件のうち 5 件）。また、`list --limit` で数えたあとに blocked の項目を外すので、「10 件」と指定しても 9 件になった（B-028 で別に扱う）。
 - 概要: 複数件のときも、未決点のある項目は 1 件ずつ、案とトレードオフを出して決める流れにする。defer は「決められない理由」が実際にあるときだけ勧める。`options` と `confirm` の指示、`SKILL.md` の説明を直す。表で一括確認できる項目（方針が明らかなもの）と、相談が要る項目をどう分けるかは未決。
 - 判断: 未決点の有無で分ける（2026-11-23）。概要に未決点があり案が複数ある項目は、1 件ずつ案とトレードオフを出して聞く。方針が明らかな項目だけ表で一括確認する。defer は「決められない理由」が実際にあるときだけ勧める。`options` と `confirm` の指示、`SKILL.md` の説明を直す。
+- 完了: 2026-11-23
+
+### B-042 backlog: next-id が origin の ID も見る
+- 状態: done
+- 優先度: P1
+- 追加: 2026-11-22
+- 背景: `backlog.py next-id` は作業ツリーの `docs/BACKLOG.md` だけを見る。ローカルのデフォルトブランチが origin より遅れていると、origin にすでにある ID（B-039 / B-040）を返した。マージ前の PR のブランチで足された ID とも衝突しうる。気づけたのは、別に `--ref origin/main` で一覧を見ていたからで、偶然だった。
+- 概要: `next-id` に `--ref` を付け、作業ツリーと `origin/<default branch>` の ID の最大値の次を返す。マージ前の PR のブランチ（`origin/backlog/*`、`origin/docs/*`）の `docs/BACKLOG.md` も見るかは未決（見ると PR 同士の衝突も防げるが、ブランチが増えると遅くなるので、対象や件数を絞る）。`lint` で origin の別項目との ID の重複を検出する案（`lint --against <ref>`）は、必要になってから別項目にする。
+- 判断: `next-id` が、作業ツリー、`origin/<default branch>`、`origin/backlog/*`、`origin/docs/*` の `docs/BACKLOG.md` の ID の最大値の次を返す（2026-11-23）。PR 同士の衝突も防ぐため、マージ前のブランチも見る。ブランチは新しい順に最大 20 本に絞る（件数は実装時に調整してよい）。`lint --against` は別項目。
 - 完了: 2026-11-23
