@@ -39,3 +39,4 @@ as written.
    with `flow-author`; for the run, continue with the right `next` command.
 4. If the definition changed while the run was open, `next` refuses to
    continue. Use `--force` only if the change is intended and the current state still exists.
+   `flow runs` marks such runs with `[definition changed]`; remove the ones you no longer need with `flow gc`.

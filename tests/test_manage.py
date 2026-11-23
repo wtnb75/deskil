@@ -42,6 +42,35 @@ def test_runs_lists_status_definition_and_time(flow, env):
     assert re.search(r"\d{4}-\d\d-\d\d \d\d:\d\d", out)
 
 
+def test_runs_does_not_mark_an_unchanged_definition(flow, env):
+    new_run(flow, env)
+    assert "definition" not in flow.runs_text(env[1]).replace(str(env[0]), "")
+
+
+def test_runs_marks_a_changed_definition(flow, env):
+    path, state_dir = env
+    same = new_run(flow, env)
+    path.write_text(DEF.replace('prompt = "A"', 'prompt = "A2"'), encoding="utf-8")
+    other = new_run(flow, env)
+    lines = {ln.split()[0]: ln for ln in flow.runs_text(state_dir).splitlines()}
+    assert "[definition changed]" in lines[same]
+    assert "[definition changed]" not in lines[other]
+
+
+def test_runs_marks_a_broken_definition_as_changed(flow, env):
+    path, state_dir = env
+    new_run(flow, env)
+    path.write_text("not = [valid", encoding="utf-8")
+    assert "[definition changed]" in flow.runs_text(state_dir)
+
+
+def test_runs_marks_a_missing_definition(flow, env):
+    path, state_dir = env
+    new_run(flow, env)
+    path.unlink()
+    assert "[definition missing]" in flow.runs_text(state_dir)
+
+
 def test_runs_marks_corrupt_file(flow, env):
     env[1].mkdir()
     (env[1] / "bad.json").write_text("{", encoding="utf-8")
