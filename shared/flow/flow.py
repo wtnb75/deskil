@@ -2507,7 +2507,18 @@ def _resolve_state_dir(arg: Path | None) -> Path:
     if arg is not None:
         return arg
     env = os.environ.get("FLOW_STATE_DIR")
-    return Path(env) if env else Path.cwd() / ".flow" / "runs"
+    if env:
+        return Path(env)
+    return _state_root() / ".flow" / "runs"
+
+
+def _state_root() -> Path:
+    """The git root (so a shifted working directory still finds the runs), or the current directory outside a repository."""
+    try:
+        top = _toplevel(Path.cwd())
+    except (OSError, subprocess.TimeoutExpired):
+        top = None
+    return Path(top) if top else Path.cwd()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -2515,7 +2526,7 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument(
         "--state-dir",
         type=Path,
-        help="directory for run state files (default: $FLOW_STATE_DIR or ./.flow/runs)",
+        help="directory for run state files (default: $FLOW_STATE_DIR or <git root>/.flow/runs, or ./.flow/runs outside a repository)",
     )
     parser = argparse.ArgumentParser(
         prog="flow", description="Step-by-step flow runner."

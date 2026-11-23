@@ -4,6 +4,7 @@ start = "pick"
 [notes]
 always = [
   "The backlog is docs/BACKLOG.md in the current project. Its header describes the item format and the meaning of each state: follow it.",
+  "Do not `cd` in Bash: the directory stays changed for later calls. Use `git -C <dir>` or absolute paths instead (`backlog.py` and `flow.py` still find the backlog and the run state from a subdirectory of the repository).",
   "A decision belongs to the user. Never move an item to ready or dropped before the user has chosen.",
   "ready means an implementer can start right now: the approach is decided, nothing the user still has to answer is open, and no dependency is unfinished. A decision to not do the item now (later, or not in the first version) is never ready: it is defer (stays todo, the decision goes into 概要) or dropped.",
   "Backlog text under docs/ follows the project's language rule (this project writes docs/ in Japanese).",

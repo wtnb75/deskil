@@ -64,7 +64,7 @@ its flows are only shown, and the prompt tells the assistant to run them itself.
 In a `run` argument, `${DEF_DIR}` is replaced by the directory of the definition file
 (for example `"${DEF_DIR}/../../scripts/x.py"`); no other variable is expanded.
 
-Run state is stored in `.flow/runs/` of the working directory
+Run state is stored in `.flow/runs/` of the git root (of the working directory outside a repository)
 (override with `--state-dir` or `FLOW_STATE_DIR`). See
 `plugins/feature-a/skills/review-loop/` for a complete example, and
 `docs/superpowers/specs/2026-11-22-flow-engine-design.md` for the design (in Japanese).
@@ -92,7 +92,7 @@ uv run backlog.py set <ID> <key> <value>               # one single-line field (
 uv run backlog.py archive <ID> --done [--pr <N>]       # or --dropped; moves the item to "done / dropped"
 ```
 
-The file defaults to `docs/BACKLOG.md` (override with `--file`). Writes are refused when they would add a lint problem.
+The file defaults to `docs/BACKLOG.md`, searched upward from the working directory up to the git root (override with `--file`, which skips the search). Writes are refused when they would add a lint problem.
 
 ## Development
 

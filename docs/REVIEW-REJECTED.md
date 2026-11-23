@@ -2,6 +2,16 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-033
+
+- code-review / `shared/flow/flow.py` `_state_root`: 既定の状態ディレクトリが `<cwd>/.flow/runs` から git のルートへ移り、サブディレクトリで始めた既存の run や、入れ子のリポジトリの外側のルートが対象になる。却下: B-033 の判断で「サブディレクトリの run は孤立するが一時的な状態なので許容する」と決めている。
+- code-review / `find_backlog` が `.git` を手で探すので、`GIT_CEILING_DIRECTORIES` や `GIT_DIR` を見る `git rev-parse` と食い違いうる。simplify（reuse・altitude）も同じ指摘（`_git_output` の再利用、共通のルート探索）。却下: `backlog.py` と `flow.py` は別々に配布されるスクリプトで共通コードを持てない。`.git` の探索ならサブプロセスが要らず、worktree の `.git` ファイルにも対応する。
+- code-review / `test_default_state_dir_is_the_git_root` が `FLOW_STATE_DIR` を消していない。却下: `test_cli.py` の autouse fixture が既に消している。
+- code-review / git がない環境では状態ディレクトリがカレント基準に退避し、git がある環境で始めた run が見つからなくなる。却下: B-033 の判断が「リポジトリ外では従来どおりカレント基準へ退避」と決めている。
+- simplify（efficiency）/ `_state_root` が呼び出しごとに `git rev-parse` を起動する（数 ms）。却下: 1 プロセスにつき 1 回で、手でたどる実装より worktree や ceiling の扱いが確実。
+- simplify（altitude）/ `run()` が既定のファイルを `args` へ書き戻す。却下: 採用した修正で `args` を書き換えず、局所変数 `path` を使う形にした。
+- 修正: simplify の `find_backlog` の単純化、`_state_root` での `_toplevel` の再利用、code-review の `lint` が絶対パスを出す点（`--file` なしでもカレントからの相対パスで出す）は採用し、修正した。
+
 ## B-041
 
 - 自己レビュー（flow-review）/ `plugins/deskil/skills/flow-convert/flow.toml` の `fix`: `max_visits = 3` を lint の失敗・dry-run の問題・対応表への異議の 3 経路で共有するので、ユーザーの異議が多いと上限に達して `report_failed` に進む。却下: 元のスキルに上限がなく、`flow-convert` の規則どおり追加した上限で、PR に明記した。経路ごとにステートを分けると定義が長くなるだけで、害はない。
