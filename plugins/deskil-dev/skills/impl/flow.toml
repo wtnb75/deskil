@@ -49,7 +49,7 @@ goto = "report_none"
 
 [states.decide]
 include = "decide-part.toml"
-exits = { report_ready = "after_decide", report = "report_none", report_none = "report_none", report_fail = "report_decide_fail" }
+exits = { report_ready = "after_decide", report = "report_none", report_none = "report_none", report_fail = "report_decide_fail", report_record_limit = "report_decide_record_limit" }
 
 [states.after_decide]
 prompt = """The decision is now written in the working tree's docs/BACKLOG.md (uncommitted): the item is ready.
@@ -206,6 +206,11 @@ end = true
 [states.report_none]
 prompt = """Tell the user that no item can be implemented now and why (nothing is ready, every ready item is blocked,
 or the named item is not ready). If a todo item is the candidate, suggest decide to make it ready."""
+end = true
+
+[states.report_decide_record_limit]
+prompt = """Tell the user that the decision reached the recording limit (200 steps), so some items may not be recorded.
+Do not start the implementation. Suggest running decide again for the rest."""
 end = true
 
 [states.report_decide_fail]

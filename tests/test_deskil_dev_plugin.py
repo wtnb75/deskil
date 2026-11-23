@@ -172,6 +172,22 @@ def test_decide_lint_failures_end_in_report_fail(tmp_path):
     assert visited(out)[-1] == "report_fail"
 
 
+def test_decide_record_limit_ends_in_its_own_state(tmp_path):
+    # 200 items can be recorded; the 201st visit of `record` exceeds the limit.
+    choices = ["found", *["ready"] * 200]
+    out = visited(dry_run("decide", choices, tmp_path))
+    assert out.count("record") == 200
+    assert out[-1] == "report_record_limit"
+    assert "report_fail" not in out
+
+
+def test_implement_decide_record_limit_does_not_start_the_implementation(tmp_path):
+    choices = ["none", "yes", "found", *["ready"] * 200]
+    out = visited(dry_run("impl", choices, tmp_path))
+    assert out[-1] == "report_decide_record_limit"
+    assert "prepare" not in out
+
+
 def test_decide_batch_consults_items_with_open_points_one_by_one():
     import tomllib
 
