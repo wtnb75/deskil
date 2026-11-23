@@ -58,7 +58,9 @@ uv run flow.py status <run-id>                        # where is this run?
 
 A state may carry `run = ["cmd", "arg"]`; flow then runs it and shows the exit code and
 output. Commands run only if the definition is identical to its copy at `--ref`
-(default `main`); otherwise they are shown but not executed.
+(default `main`); otherwise they are shown but not executed. This includes a plugin
+installed from a marketplace: its directory is not a git repository, so the commands of
+its flows are only shown, and the prompt tells the assistant to run them itself.
 In a `run` argument, `${DEF_DIR}` is replaced by the directory of the definition file
 (for example `"${DEF_DIR}/../../scripts/x.py"`); no other variable is expanded.
 
