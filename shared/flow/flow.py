@@ -37,6 +37,9 @@ try:
 except ImportError:  # Windows: runs are not locked
     fcntl = None
 
+# The version of the deskil command. A plain string literal: pyproject.toml reads it statically.
+__version__ = "1.0.0"
+
 # ---------------------------------------------------------------------------
 # errors and issues
 # ---------------------------------------------------------------------------
@@ -69,14 +72,42 @@ def read_source(path: Path) -> bytes:
         raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
 
 
+ENGINE_RE = re.compile(r"^>=\s*(\d+)\.(\d+)(?:\.(\d+))?$")
+
+
+def check_engine(raw: dict, path: Path | None = None) -> None:
+    """Stop if the definition asks for a newer engine than this one.
+
+    A missing or badly formed `engine` passes here: the linter reports a bad value.
+    """
+    req = raw.get("engine")
+    m = ENGINE_RE.match(req) if isinstance(req, str) else None
+    if m is None:
+        return
+    need = tuple(int(g or 0) for g in m.groups())
+    have = tuple(int(n) for n in __version__.split("."))
+    if need > have:
+        shown = ".".join(g for g in m.groups() if g is not None)
+        where = f"{path}: " if path else ""
+        raise FlowError(
+            f"{where}this definition needs deskil {shown} or newer "
+            f"(installed: {__version__}); run `uv tool upgrade deskil`"
+        )
+
+
 def parse_toml(path: Path, data: bytes) -> dict:
-    """Parse TOML text read from `path`, converting encoding and syntax errors into FlowError."""
+    """Parse TOML text read from `path`, converting encoding and syntax errors into FlowError.
+
+    Every command reads definitions through here, so the engine version is checked once, here.
+    """
     try:
-        return tomllib.loads(data.decode("utf-8"))
+        raw = tomllib.loads(data.decode("utf-8"))
     except UnicodeDecodeError as e:
         raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
     except tomllib.TOMLDecodeError as e:
         raise FlowError(f"{path}: {e}") from e
+    check_engine(raw, path)
+    return raw
 
 
 def read_toml(path: Path) -> dict:
@@ -91,7 +122,7 @@ def read_toml(path: Path) -> dict:
 ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 LABEL_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
-TOP_KEYS = {"schema", "start", "notes", "args", "states"}
+TOP_KEYS = {"schema", "engine", "start", "notes", "args", "states"}
 ARG_KEYS = {"required", "default"}
 # A reference to a start argument in a prompt, a note or a choice criterion.
 ARG_REF_RE = re.compile(r"\{\{arg\.([^{}\s]*)\}\}")
@@ -552,6 +583,16 @@ def lint_schema(raw: dict, base_dir: Path) -> list[Issue]:
     if type(raw.get("schema")) is not int or raw.get("schema") != 1:
         _err(issues, "schema", "schema", "schema must be 1")
 
+    if "engine" in raw and (
+        not isinstance(raw["engine"], str) or not ENGINE_RE.match(raw["engine"])
+    ):
+        _err(
+            issues,
+            "engine",
+            "engine",
+            f'engine must look like ">=1.0" or ">=1.0.0": {raw["engine"]!r}',
+        )
+
     common: set[str] = set()
     if "notes" in raw:
         common = _check_notes(raw["notes"], base_dir, issues)
@@ -883,6 +924,14 @@ def _expand_include(
         for i in lint_schema(sub_raw, target.parent)
     ]
     issues.extend(sub_issues)
+    if "engine" in sub_raw:
+        _err(
+            issues,
+            "include-engine",
+            f"{sub_label}engine",
+            "engine is only allowed in the root definition",
+        )
+        return None
     if "args" in sub_raw:
         _err(
             issues,
@@ -2629,7 +2678,7 @@ def rename_state(defn_path: Path, old: str, new: str, allow_end: bool = False) -
 
 # Canonical key order per kind of table; keys not listed keep their order after the listed ones.
 FMT_ORDER = {
-    "top": ("schema", "start"),
+    "top": ("schema", "engine", "start"),
     "notes": ("always", "common"),
     "arg": ("required", "default"),
     "state": (
@@ -2654,6 +2703,7 @@ FMT_KEY_RE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*)$")
 
 NEW_TEMPLATE = """\
 schema = 1
+# engine = ">=1.0"  # minimum deskil version this definition needs
 start = "do_work"
 
 [states.do_work]

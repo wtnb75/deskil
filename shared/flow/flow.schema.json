@@ -29,6 +29,11 @@
       "description": "Version of the definition format.",
       "const": 1
     },
+    "engine": {
+      "description": "Minimum deskil version this definition needs, for example \">=1.4\". Only in the root definition.",
+      "type": "string",
+      "pattern": "^>=\\s*\\d+\\.\\d+(\\.\\d+)?$"
+    },
     "start": {
       "description": "Id of the first state.",
       "type": "string"
