@@ -1,6 +1,6 @@
 # フローエンジンの配布方法の変更（`deskil` コマンド化）設計書
 
-日付: 2026-11-23 / 状態: 承認待ち
+日付: 2026-11-23 / 状態: 承認済み
 
 ## 1. 目的と背景
 
@@ -70,7 +70,7 @@ B の代償は、各マシンや CI で導入が要ること、マシンごと�
   - 将来の追加（B-066）は、対応表に 1 行足すだけで済む形にする。
 - `flow.py` は `shared/flow/flow.py` のまま動かさない。`flow.py` のコマンドライン処理の内部（`argparse` の `prog` など）は、ヘルプの表示が `deskil flow …` になる範囲だけ直す。
 - 版は `deskil.py`（または `flow.py`）の `__version__` を唯一の出どころにし、`deskil --version` で出す。`pyproject.toml` はそれを動的に読む。どちらに置くかは実装者が決める（§7）。
-- 同梱するもの: `deskil.py`、`flow.py`、`flow.schema.json`（エディタ用スキーマ。`SCHEMA_FILE` がエンジンと同じディレクトリを見るため、導入後も解決できること）。
+- 同梱するもの: `deskil.py`、`flow.py`。`flow.schema.json`（エディタ用スキーマ）は同梱しない。`py-modules` 形式では同じディレクトリに置く方法が重く、リポジトリの外では `flow new` が元から `#:schema` の行を書かないので、導入したコマンドには要らない（実装時の判断。`tests/test_packaging.py` が確かめる）。
 - 導入: `uv tool install git+https://github.com/wtnb75/deskil`
 - 更新: `uv tool upgrade deskil`
 

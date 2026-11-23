@@ -7,8 +7,9 @@
 
 ## 共有スクリプト
 
-- `plugins/*/scripts/` 配下のスクリプト（`backlog.py`、`flow.py`、`common.sh`）は、`shared/` 配下の実体へのシンボリックリンクである。
-- スクリプトを編集するときは、リンクではなく実体（`shared/backlog/backlog.py`、`shared/flow/flow.py`、`shared/scripts/common.sh`）を編集する。リンクへの書き込みは拒否される。
+- `plugins/*/scripts/` 配下のスクリプト（`backlog.py`、`common.sh`）は、`shared/` 配下の実体へのシンボリックリンクである。
+- スクリプトを編集するときは、リンクではなく実体（`shared/backlog/backlog.py`、`shared/scripts/common.sh`）を編集する。リンクへの書き込みは拒否される。
+- `flow.py` は同梱せず、導入済みの `deskil` コマンド（`deskil flow …`）で呼ぶ。実体は `shared/flow/flow.py`。このリポジトリで `flow.py` を直すときは、`uv tool install --editable .` で作業ツリーのエンジンを使う。
 
 ## バックログ
 

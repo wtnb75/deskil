@@ -10,12 +10,33 @@ Claude Code plugin marketplace.
 /plugin install deskil-dev@deskil
 ```
 
+## The `deskil` command
+
+Skills that run on a flow definition call the `deskil` command, which you install once per machine
+(it needs [uv](https://docs.astral.sh/uv/)):
+
+```
+uv tool install git+https://github.com/wtnb75/deskil   # install
+uv tool upgrade deskil                                 # update
+deskil --version
+```
+
+Skills check `deskil --version` first and tell you to install it when it is missing.
+
+To move a skill that bundles its own copy of `flow.py` to the command:
+
+1. Install `deskil` as above.
+2. Delete the copied `flow.py` and the task that synchronises it.
+3. Call `deskil flow ...` instead of `uv run .../flow.py ...`, and set `allowed-tools: Bash(deskil flow:*)`.
+
 ## Layout
 
 ```
 .claude-plugin/marketplace.json   marketplace catalog
 shared/scripts/                   scripts shared by plugins (single source of truth)
 shared/flow/flow.py               the flow engine
+shared/flow/deskil.py             the `deskil` entry point (`deskil flow ...` runs the engine)
+pyproject.toml                    packages the two modules above as the `deskil` command
 shared/backlog/backlog.py         the backlog tool
 plugins/<name>/
   .claude-plugin/plugin.json
@@ -35,27 +56,31 @@ plugins/<name>/
 ## Flow engine
 
 Skills are often written as long, numbered procedures. The flow engine
-(`shared/flow/flow.py`, Python 3.11+, standard library only) runs them as a
+(`shared/flow/flow.py`, run as `deskil flow ...`; Python 3.11+, standard library only) runs them as a
 state machine instead: the procedure lives in a `flow.toml`, and the engine
 prints only the current step, its notes, and the results the LLM can report.
 
 ```
-uv run flow.py lint <flow.toml> [--format text|json|github]  # find orphans, dead ends, bad references
-uv run flow.py dry-run <flow.toml> [--results a,b,c]  # see the steps without running
-uv run flow.py test <flow.toml> <scenarios.toml>      # check [[scenario]] name/choices/expect against the flow
-uv run flow.py graph <flow.toml>                      # print the transitions as a Mermaid flowchart
-uv run flow.py rename <flow.toml> <old> <new> [--allow-end]  # rename a state in this file; any `end = true` state needs --allow-end (the tool cannot tell a part from a root, and includers' `exits` keys are not updated)
-uv run flow.py new <flow.toml>                        # write a template definition (never overwrites)
-uv run flow.py fmt <flow.toml> [--check]              # sort keys, normalise layout, keep comments
-uv run flow.py runs                                   # list runs (id, status, updated, definition)
-uv run flow.py gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
-uv run flow.py gc --corrupt                           # delete unreadable run files (e.g. left by a killed start)
-uv run flow.py stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
-uv run flow.py export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
-uv run flow.py start <flow.toml> [--ref main]         # start a run, print the first step
-uv run flow.py next <run-id> [--result <label>]       # report a result, print the next step
-uv run flow.py status <run-id>                        # where is this run?
+deskil flow lint <flow.toml> [--format text|json|github]  # find orphans, dead ends, bad references
+deskil flow dry-run <flow.toml> [--results a,b,c]  # see the steps without running
+deskil flow test <flow.toml> <scenarios.toml>      # check [[scenario]] name/choices/expect against the flow
+deskil flow graph <flow.toml>                      # print the transitions as a Mermaid flowchart
+deskil flow rename <flow.toml> <old> <new> [--allow-end]  # rename a state in this file; any `end = true` state needs --allow-end (the tool cannot tell a part from a root, and includers' `exits` keys are not updated)
+deskil flow new <flow.toml>                        # write a template definition (never overwrites)
+deskil flow fmt <flow.toml> [--check]              # sort keys, normalise layout, keep comments
+deskil flow runs                                   # list runs (id, status, updated, definition)
+deskil flow gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
+deskil flow gc --corrupt                           # delete unreadable run files (e.g. left by a killed start)
+deskil flow stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
+deskil flow export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
+deskil flow start <flow.toml> [--ref main]         # start a run, print the first step
+deskil flow next <run-id> [--result <label>]       # report a result, print the next step
+deskil flow status <run-id>                        # where is this run?
 ```
+
+A definition may name the oldest engine it needs with `engine = ">=1.4"` (only `>=`, at the top level of the
+root definition). An older `deskil` stops with a message to run `uv tool upgrade deskil`; without `engine` a
+definition runs on any version.
 
 A state may carry `run = ["cmd", "arg"]`; flow then runs it and shows the exit code and
 output. Commands run only if the definition is identical to its copy at `--ref`
@@ -102,11 +127,15 @@ The file defaults to `docs/BACKLOG.md`, searched upward from the working directo
 ```
 task test   # pytest
 task lint   # ruff
+uv tool install --editable .   # make the installed `deskil` use this working tree
 ```
+
+Without the editable install, the `deskil-dev` skills run the installed (released) engine, not the
+`flow.py` you are editing.
 
 ## Notes
 
-- Shared scripts are bundled into each plugin through **relative symlinks**
+- Shared scripts (`backlog.py`, `common.sh`) are bundled into each plugin through **relative symlinks**
   (plugins are copied to a cache on install and cannot reference files outside their own directory).
 - Symlinks require `core.symlinks` support: macOS / Linux only (Windows is not supported).
 - Links must be relative and point inside this repository.
