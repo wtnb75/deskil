@@ -263,6 +263,9 @@ def render_list(
     """Render the sorted list. `priority` keeps that priority or higher (items without one are dropped);
     `exclude` drops the given item ids; `unblocked` drops items that have an unfinished dependency;
     `limit` keeps the first N rows after sorting and filtering."""
+    unknown = sorted(statuses - set(STATES)) if statuses else []
+    if unknown:
+        raise BacklogError(f"invalid status {unknown[0]!r} (use {', '.join(STATES)})")
     if priority is not None and priority not in PRIORITIES:
         raise BacklogError(
             f"invalid priority {priority!r} (use {', '.join(PRIORITIES)})"

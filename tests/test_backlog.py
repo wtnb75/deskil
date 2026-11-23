@@ -946,6 +946,16 @@ def test_cli_list_priority_and_limit(backlog, tmp_path, capsys):
     assert "P9" in capsys.readouterr().err
 
 
+def test_cli_list_rejects_invalid_status(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "list", "--status", "Todo"]) == 2
+    assert "invalid status 'Todo'" in capsys.readouterr().err
+    # Every comma-separated value is checked.
+    assert backlog.main(["--file", str(path), "list", "--status", "ready,bogus"]) == 2
+    assert "bogus" in capsys.readouterr().err
+    assert backlog.main(["--file", str(path), "list", "--status", "ready,todo"]) == 0
+
+
 def test_cli_missing_file_exits_2(backlog, tmp_path, capsys):
     missing = tmp_path / "nope.md"
     assert backlog.main(["--file", str(missing), "list"]) == 2
