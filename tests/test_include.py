@@ -230,6 +230,57 @@ def test_include_path_must_stay_inside(flow, tree, target):
     assert "include-outside" in codes(flow, tree)
 
 
+def test_include_refuses_dotdot_even_when_it_stays_inside(flow, tree):
+    # `parts/../parts/test.toml` normalizes to an existing inside path, but is still refused.
+    _write(tree, PARENT.replace("parts/test.toml", "parts/../parts/test.toml"))
+    assert "include-outside" in codes(flow, tree)
+
+
+def _repo_with_include(tmp_path, link_target):
+    """A git repo holding a definition whose part `parts/lnk` is a symlink to `link_target`."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    (root / "parts").mkdir()
+    (root / "parts" / "lnk").symlink_to(link_target)
+    return root, _write(
+        root / "flow.toml", PARENT.replace("parts/test.toml", "parts/lnk")
+    )
+
+
+def test_include_through_symlink_inside_the_repo_is_allowed(flow, tmp_path):
+    root, p = _repo_with_include(tmp_path, "../shared.toml")
+    _write(root / "shared.toml", PART)
+    assert "include-outside" not in codes(flow, p)
+
+
+def test_include_through_symlink_outside_the_repo_is_refused(flow, tmp_path):
+    outside = _write(tmp_path / "outside.toml", PART)
+    _, p = _repo_with_include(tmp_path, outside)
+    assert "include-outside" in codes(flow, p)
+
+
+def test_include_through_symlinked_directory_outside_the_repo_is_refused(
+    flow, tmp_path
+):
+    _write(tmp_path / "elsewhere" / "test.toml", PART)
+    root = tmp_path / "repo"
+    root.mkdir()
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    (root / "parts").symlink_to(tmp_path / "elsewhere")
+    p = _write(root / "flow.toml", PARENT)
+    assert "include-outside" in codes(flow, p)
+
+
+def test_include_symlink_is_not_checked_without_a_repo(flow, tmp_path):
+    # No git repository: there is nothing to compare with, so the link is only followed.
+    outside = _write(tmp_path / "outside.toml", PART)
+    (tmp_path / "parts").mkdir()
+    (tmp_path / "parts" / "lnk").symlink_to(outside)
+    p = _write(tmp_path / "flow.toml", PARENT.replace("parts/test.toml", "parts/lnk"))
+    assert "include-outside" not in codes(flow, p)
+
+
 def test_include_file_must_exist(flow, tree):
     _write(tree, PARENT.replace("parts/test.toml", "parts/none.toml"))
     assert "include-missing" in codes(flow, tree)

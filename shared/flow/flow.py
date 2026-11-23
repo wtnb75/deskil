@@ -744,6 +744,32 @@ def _map_edges(st: dict, fn) -> dict:
     return out
 
 
+def _include_link_leaves_repo(base: Path, norm: str) -> bool:
+    """True if a symlink on the way from `base` along `norm` resolves outside the git repository.
+
+    Without a repository there is nothing to compare with, so nothing is refused here (the
+    commands are then only shown, never run).
+    """
+    current = base
+    top_real: Path | None = None
+    try:
+        for part in norm.split("/"):
+            current = current / part
+            if not current.is_symlink():
+                continue
+            if top_real is None:
+                top = _toplevel(base)
+                if top is None:
+                    return False
+                top_real = Path(os.path.realpath(top))
+            if not Path(os.path.realpath(current)).is_relative_to(top_real):
+                return True
+    except (OSError, ValueError, subprocess.SubprocessError):
+        # A link was met but could not be judged (e.g. git failed): refuse rather than follow it.
+        return True
+    return False
+
+
 def _expand_include(
     sid: str,
     st: dict,
@@ -764,7 +790,9 @@ def _expand_include(
     where = f"{label}states.{sid}"
     rel = st["include"]
     norm = posixpath.normpath(rel)
-    if os.path.isabs(rel) or norm == ".." or norm.startswith("../"):
+    # `..` is refused anywhere in the path: normalizing it lexically would not match what the
+    # kernel does when a symlink is on the way.
+    if os.path.isabs(rel) or ".." in rel.split("/"):
         _err(
             issues,
             "include-outside",
@@ -773,7 +801,15 @@ def _expand_include(
         )
         return None
     # The path is judged as written (not after following symlinks): a symlink is how a part
-    # is shared between definitions.
+    # is shared between definitions. A link may leave the directory but not the repository.
+    if _include_link_leaves_repo(base, norm):
+        _err(
+            issues,
+            "include-outside",
+            f"{where}.include",
+            f"'{rel}' goes through a symlink that points outside the repository",
+        )
+        return None
     target = base / norm
     try:
         real = target.resolve()
