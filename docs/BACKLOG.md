@@ -41,14 +41,6 @@
 
 ## todo / ready
 
-### B-054 backlog: list --status の不正な値を拒否する
-- 状態: ready
-- 優先度: P3
-- 追加: 2026-11-23
-- 背景: 全体レビュー（コードを読んだ範囲）。`backlog.py list --status Todo` のような誤りがエラーにならず、空の出力を返すので、項目がないのか指定の誤りか区別できない。
-- 概要: `--status` の値が `STATES` にないときは `BacklogError` にする。`--priority` と同じ扱い。
-- 判断: `backlog.py list --status` の値が `STATES` にないときは `BacklogError` にする（カンマ区切りの各値を検査する）。`--priority` の検査と同じ扱い。テストを足す。
-
 ### B-057 flow: fmt と rename の書き込みを共通の原子的書き込みにする
 - 状態: ready
 - 優先度: P3
@@ -624,4 +616,13 @@
 - 背景: 全体レビューで検証済み。部品の終了ステートを rename すると、部品単体の lint は通って書き換わるが、includer の `exits` のキーが古いままになり `exits-missing` / `exits-unknown` になる。`rename_state` の docstring（everywhere it is referenced）は実際より広く言っている。B-037 は includer 側の `exits` の「値」を直したが、部品側の rename は範囲外だった。
 - 概要: 案: docstring と README に制限を書く／部品の終了ステートの rename を警告して拒否する／includer を探して書き換える（探索の範囲が未決）。
 - 判断: 案 B。部品の終了ステートの rename は、警告を出して拒否する（includer の `exits` のキーを壊すため）。拒否のメッセージで、includer 側も手で直す手順を案内する。あわせて `rename_state` の docstring と README に制限を書く。includer を探して書き換える案は、探索の範囲が未決で、複数ファイルを書く途中の失敗が危ないので採らない。
+- 完了: 2026-11-23
+
+### B-054 backlog: list --status の不正な値を拒否する
+- 状態: done
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー（コードを読んだ範囲）。`backlog.py list --status Todo` のような誤りがエラーにならず、空の出力を返すので、項目がないのか指定の誤りか区別できない。
+- 概要: `--status` の値が `STATES` にないときは `BacklogError` にする。`--priority` と同じ扱い。
+- 判断: `backlog.py list --status` の値が `STATES` にないときは `BacklogError` にする（カンマ区切りの各値を検査する）。`--priority` の検査と同じ扱い。テストを足す。
 - 完了: 2026-11-23
