@@ -2,6 +2,18 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-042
+
+- simplify（efficiency）/ `shared/backlog/backlog.py` `remote_id_numbers`: ref ごとに `git show` を直列に最大 21 回呼ぶ。`git cat-file --batch` か `git grep` に替えるべき。却下: 1 回数 ms で、`next-id` 全体でも 0.5 秒未満。バッチにすると欠けたファイルの扱いが複雑になり、`read_backlog_ref` の再利用もできなくなる。
+- simplify（reuse）/ `_git_output` が `started_ids`・`read_backlog_ref` と並ぶ 3 つ目の git 実行の薄いラッパー。共通化すべき。却下: 失敗時の扱いが違う（None を返すか `BacklogError` か）。2 つ目の呼び出し側（`started_ids`）まで触る範囲外の改修になる。`git show` の部分は `read_backlog_ref` の再利用に替えた。
+- simplify（simplification）/ `next_id` の引数の型を `Iterable[int]` でなく `set[int]` にして import を外す。却下: 好みの範囲で、動作は変わらない。
+- code-review・altitude / 新しい順の 20 本の上限が、マージ済みで未削除のブランチに埋まって、長く生きている PR のブランチを押し出す。却下: 上限は B-042 の判断で決めた値（件数は実装時に調整してよいとある）。`git fetch --prune` が前提で、必要になれば `--no-merged` で絞る別項目にする。
+- code-review / `remote` がない、または `origin` がないリポジトリで、`--no-remote` で外せるようにすべき。却下: `origin` がなければ警告も出さず空集合を返すので、害はない。オプションを足す理由が今はない。
+- altitude / `next-id` が自分で `git fetch origin` すべき。却下: 読み取りのコマンドにネットワークの副作用を足すことになる。README に「先に `git fetch`」と明記し、`add` の flow が最初に fetch する（B-043）。
+- altitude / `lint --against <ref>` で origin の別項目との ID の重複を検出する。却下: B-042 の判断が別項目としている。
+- security-review: 指摘なし。
+- 修正: code-review の「`git show ref:path` がリポジトリルート基準で、サブディレクトリや絶対パスの `--file` で黙って失敗する」（`./` 付きの `ref_spec` で修正）、「`origin/HEAD` が未設定だとデフォルトブランチを見ない」（`origin/main`・`origin/master` を推測し、警告を出す）、「壊れた backlog のブランチで止まる」（`BacklogError` を握って読み飛ばす）、「`%(refname:short)` が曖昧になる」（完全名に変更）は採用し、修正した。simplify の再利用（`read_backlog_ref` の再利用）・単純化（`rev-parse` の削除、help を短くする、テストの共通化と弱い assertion の修正）も採用し、修正した。
+
 ## B-035
 
 - 自己レビュー / `tests/test_deskil_dev_plugin.py` `test_triage_rejected_judge_rules`: `"twice" in prompt or "2" in prompt` の条件が緩い。却下: 文言への依存を固めすぎると、プロンプトの言い換えのたびにテストが壊れる。好みの範囲。

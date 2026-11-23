@@ -84,7 +84,7 @@ The skills call `shared/backlog/backlog.py` (Python 3.11+, standard library only
 ```
 uv run backlog.py list [--all | --status todo,ready]   # ordered by state, priority, id; marks blocked items
 uv run backlog.py show <ID>
-uv run backlog.py next-id
+uv run backlog.py next-id                               # also looks at origin (default branch, newest origin/backlog/* and origin/docs/*; run `git fetch` first)
 uv run backlog.py lint                                 # exit 1 when the format is broken
 uv run backlog.py set <ID> <key> <value>               # one single-line field (状態 / 優先度 / 依存 / 完了 / PR)
 uv run backlog.py archive <ID> --done [--pr <N>]       # or --dropped; moves the item to "done / dropped"
