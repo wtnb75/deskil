@@ -41,55 +41,54 @@
 
 ## todo / ready
 
-### B-052 deskil-dev: decide-part.toml と decide/flow.toml の重複をなくす
-- 状態: todo
-- 優先度: P3
-- 追加: 2026-11-23
-- 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
-- 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
-
 ### B-053 flow: rename が includer の exits を直せない制限を扱う
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 追加: 2026-11-23
 - 背景: 全体レビューで検証済み。部品の終了ステートを rename すると、部品単体の lint は通って書き換わるが、includer の `exits` のキーが古いままになり `exits-missing` / `exits-unknown` になる。`rename_state` の docstring（everywhere it is referenced）は実際より広く言っている。B-037 は includer 側の `exits` の「値」を直したが、部品側の rename は範囲外だった。
 - 概要: 案: docstring と README に制限を書く／部品の終了ステートの rename を警告して拒否する／includer を探して書き換える（探索の範囲が未決）。
+- 判断: 案 B。部品の終了ステートの rename は、警告を出して拒否する（includer の `exits` のキーを壊すため）。拒否のメッセージで、includer 側も手で直す手順を案内する。あわせて `rename_state` の docstring と README に制限を書く。includer を探して書き換える案は、探索の範囲が未決で、複数ファイルを書く途中の失敗が危ないので採らない。
 
 ### B-054 backlog: list --status の不正な値を拒否する
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 追加: 2026-11-23
 - 背景: 全体レビュー（コードを読んだ範囲）。`backlog.py list --status Todo` のような誤りがエラーにならず、空の出力を返すので、項目がないのか指定の誤りか区別できない。
 - 概要: `--status` の値が `STATES` にないときは `BacklogError` にする。`--priority` と同じ扱い。
+- 判断: `backlog.py list --status` の値が `STATES` にないときは `BacklogError` にする（カンマ区切りの各値を検査する）。`--priority` の検査と同じ扱い。テストを足す。
 
 ### B-057 flow: fmt と rename の書き込みを共通の原子的書き込みにする
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 依存: B-056
 - 追加: 2026-11-23
 - 背景: B-021 のレビューで 2 回却下した指摘（一時ファイル書き込みの共通化、`os.replace` が symlink を通常ファイルに置き換え権限を引き継がない）。`fmt` は `.fmt.tmp`、`rename` は `.rename.tmp` の固定名で書き、`save_run` は `mkstemp` を使うなど、方式が 3 通りある。B-056（backlog.py の書き込み）と同じ論点。
 - 概要: 一時ファイルの作成、権限の引き継ぎ、symlink の扱い（実体へ書くか、拒否するか）を 1 つの関数にまとめ、`fmt`・`rename`・`save_run` が使う。B-056 の決定に合わせる。
+- 判断: `flow.py` に、`backlog.py` の `write_atomic`（B-056）と同じ方式の関数を 1 つ置く: symlink は実体へ書く、既存ファイルの権限を引き継ぐ、`mkstemp` で同じディレクトリに一時ファイルを作る。`fmt`・`rename`・`save_run` がこれを使う。`flow.py` は標準ライブラリだけの方針なので `backlog.py` から import せず、同じ内容を持つ。
 
 ### B-059 flow: 部品と { file } の文面の {{arg.x}} の未宣言を lint で見つける
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 追加: 2026-11-23
 - 背景: B-018 で却下した指摘。部品の文面や `{ file }` の文面にある `{{arg.x}}` が未宣言でも lint を通り、`next` の描画で `unknown argument in a text` になる。ステートを進める途中で落ち、同じエラーが繰り返される。
 - 概要: 展開後の定義（部品を含む）と `{ file }` の中身を読んで、ルートの `[args]` と照合する。`dry-run` も引数なしで描画するので見つけられない点も合わせて扱う。
+- 判断: 案 A。`lint` が、部品を展開した後の定義と `{ file }` の中身を読み、`{{arg.x}}` をルートの `[args]` と照合する。部品は単体では照合できないので、展開後にだけ確かめる。`dry-run` が引数なしで描画する点は、`lint` が先に見つけるので別の対応はしない。
 
 ### B-062 bench: tokens.py にサブエージェントの記録を含める
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 追加: 2026-11-23
 - 背景: B-014 で却下した指摘 2 件（altitude と code-review）。`tokens.py` はサブエージェント（sidechain）の記録を集計しない。`impl` の `review` は `code-review` などのスキルでサブエージェントを使うので、deskil 版のトークン数が低く出る。制限は文書に書いてある。
 - 概要: sidechain の記録を含めて集計する（別行にするか、合算するか）。ログの置き場所（セッションの下の別ファイル）の読み方が未決。
+- 判断: 案 A。セッションの `.jsonl` に対応するサブエージェント（sidechain）のファイルも読み、本体とサブエージェントを別の列に分けて出し、合計も出す。実装の最初に、実際のセッションでサブエージェントのログの置き場所と形式を確かめる。
 
 ### B-063 flow: flow.toml の JSON Schema を Taplo で使えるようにする
-- 状態: todo
+- 状態: ready
 - 優先度: P3
 - 追加: 2026-11-23
 - 背景: `flow.toml` の検査は `flow.py lint` だけで、書いている間のエディタの補完やエラー表示がない。TOML には YAML の `$schema` コメントのような標準はないが、Taplo（VS Code の Even Better TOML 拡張）は `#:schema <path>` と `.taplo.toml` の `[[rule]]` で JSON Schema を使える。
 - 概要: 構造（キー名、型、`choices` など）を表す JSON Schema を用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。遷移先の存在、到達性、`exits` の対応、`{file}` の実在は、スキーマで表せないので `flow.py lint` に残す。`flow.py` は標準ライブラリだけの方針なので、スキーマは別ファイルにし、`lint` の `unknown-key` などと食い違わないよう、テストで一致を確かめる方法が未決。`flow.py new` の雛形に `#:schema` を入れるかも決める。
+- 判断: 案 A。構造（キー名、型、`choices` など）を表す JSON Schema を別ファイルで用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。`flow.py new` の雛形に `#:schema`（相対パス）を入れる。テストで、スキーマのキー名と `flow.py` が持つ既知キーの定義を突き合わせ、`lint` の `unknown-key` と食い違わないようにする。遷移先の存在、到達性、`exits` の対応、`{ file }` の実在は `flow.py lint` に残す。
 
 ## done / dropped
 
@@ -617,3 +616,11 @@
 - 概要: 上限の扱い（バッチの件数に上限を設ける／`record` を件数で縛らない）と、超過時の専用の終了ステートを決める。`impl/decide-part.toml` にも同じ修正が要る（B-052 と関係する）。
 - 判断: 一括決定の件数は制限せず、`record` の `max_visits` を実用上届かない値（200）に上げ、超過時は専用の終了ステート `report_record_limit`（「記録の上限に達した。残りは新しい decide で続ける」）へ移す。`decide/flow.toml` と `impl/decide-part.toml` の両方を直す。暴走を止める上限は残しつつ、件数の仕様は変えないため。
 - 完了: 2026-11-23
+
+### B-052 deskil-dev: decide-part.toml と decide/flow.toml の重複をなくす
+- 状態: dropped
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
+- 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
+- 判断: 解決済みのため取り下げる。`impl/decide-part.toml` は B-032 の時点で `../decide/flow.toml` への symlink（mode 120000）になっており、実体は 1 つである。バックログの背景（コピー）は事実と違っていた。
