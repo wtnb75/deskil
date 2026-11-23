@@ -12,6 +12,11 @@ Usage:
 
 Files that share a label are one group (for example `plain` and `deskil`).
 The output has one row per file, then the mean of each group.
+
+Subagent (sidechain) logs are read too. Claude Code writes them next to a session
+log `<id>.jsonl` as `<id>/subagents/agent-*.jsonl`. The main columns count the
+session file only; the `sub_*` columns count its subagent files, and `all_total`
+is `total + sub_total`.
 """
 
 from __future__ import annotations
@@ -31,6 +36,11 @@ COLUMNS = (
     "turns",
     "tool_calls",
     "tool_errors",
+    "sub_total",
+    "sub_turns",
+    "sub_tool_calls",
+    "sub_tool_errors",
+    "all_total",
 )
 
 
@@ -45,10 +55,19 @@ class Stats:
     turns: int = 0
     tool_calls: int = 0
     tool_errors: int = 0
+    # sums over the subagent logs of this session
+    sub_total: int = 0
+    sub_turns: int = 0
+    sub_tool_calls: int = 0
+    sub_tool_errors: int = 0
 
     @property
     def total(self) -> int:
         return self.input + self.cache_create + self.cache_read + self.output
+
+    @property
+    def all_total(self) -> int:
+        return self.total + self.sub_total
 
     def row(self) -> list[int]:
         return [getattr(self, c) for c in COLUMNS]
@@ -66,8 +85,25 @@ def _count(usage: dict, key: str) -> int:
     return value if isinstance(value, int) else 0
 
 
+def subagent_logs(path: Path) -> list[Path]:
+    """Subagent logs of a session log `<id>.jsonl`: `<id>/subagents/agent-*.jsonl`."""
+    return sorted((path.with_suffix("") / "subagents").glob("agent-*.jsonl"))
+
+
 def collect(path: Path) -> Stats:
-    """Sum one session log.
+    """Sum one session log, with its subagent logs in the `sub_*` columns."""
+    stats = _collect_file(path)
+    for sub_path in subagent_logs(path):
+        sub = _collect_file(sub_path)
+        stats.sub_total += sub.total
+        stats.sub_turns += sub.turns
+        stats.sub_tool_calls += sub.tool_calls
+        stats.sub_tool_errors += sub.tool_errors
+    return stats
+
+
+def _collect_file(path: Path) -> Stats:
+    """Sum one log file.
 
     One API response can be written as several lines (one per content block)
     that all carry the same message id and usage, so usage is counted once per id.
@@ -162,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
                     "file": str(path),
                     **asdict(stats),
                     "total": stats.total,
+                    "all_total": stats.all_total,
                 }
                 for label, path, stats in rows
             ],
