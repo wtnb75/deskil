@@ -11,6 +11,7 @@ Single file, standard library only (Python 3.11+).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -26,7 +27,7 @@ import sys
 import tempfile
 import time
 import tomllib
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -1244,7 +1245,9 @@ def render_command(result: dict) -> str:
             continue
         head = f"{name} (last {result['output_lines']} lines"
         if cut:
-            head += f"; {cut} lines truncated; full output: {result[f'{name}_file']}"
+            head += f"; {cut} lines truncated"
+            if result[f"{name}_file"]:
+                head += f"; full output: {result[f'{name}_file']}"
         lines.append(head + "):")
         lines.append(text.rstrip("\n"))
     return "\n".join(lines)
@@ -1388,7 +1391,7 @@ def load_run(state_dir: Path, run_id: str) -> Run:
 
 def save_run(state_dir: Path, run: Run) -> None:
     """Write the run atomically (temp file + rename)."""
-    state_dir.mkdir(parents=True, exist_ok=True)
+    _private_dir(state_dir)
     path = _run_path(state_dir, run.run_id)
     fd, tmp_name = tempfile.mkstemp(
         dir=state_dir, prefix=f"{run.run_id}.", suffix=".tmp"
@@ -1404,7 +1407,7 @@ def save_run(state_dir: Path, run: Run) -> None:
 
 def _new_run_id(state_dir: Path) -> str:
     """Pick an unused run id and reserve it by creating its (empty) run file."""
-    state_dir.mkdir(parents=True, exist_ok=True)
+    _private_dir(state_dir)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     while True:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
@@ -1414,7 +1417,7 @@ def _new_run_id(state_dir: Path) -> str:
                 os.open(
                     _run_path(state_dir, run_id),
                     os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o644,
+                    0o600,
                 )
             )
         except FileExistsError:
@@ -1459,11 +1462,54 @@ def _resolve_target(
     raise FlowError("on_exceed chain does not terminate")
 
 
-def _tail(data: bytes, limit: int) -> tuple[str, int]:
-    """Decode output and keep its last `limit` lines; return (text, number of lines cut)."""
-    lines = data.decode("utf-8", errors="replace").splitlines(keepends=True)
-    cut = max(0, len(lines) - limit)
-    return "".join(lines[cut:]), cut
+@contextlib.contextmanager
+def _open_output(state_dir: Path | None, run_id: str, name: str):
+    """Open a private (0o600) file for a command's output; yield (handle, path).
+
+    The file lives in `<state_dir>/<run_id>/` (0o700). Without a state dir, or if that
+    file cannot be created, an anonymous temporary file is used and `path` is None.
+    """
+    handle = None
+    path: Path | None = None
+    if state_dir is not None:
+        target = state_dir / run_id / name
+        try:
+            _private_dir(target.parent)
+            fd = os.open(target, os.O_CREAT | os.O_TRUNC | os.O_RDWR, 0o600)
+            handle = os.fdopen(fd, "r+b")
+            path = target
+        except OSError:
+            handle = None  # best effort; the tail is still reported
+    if handle is None:
+        handle = tempfile.TemporaryFile()  # created 0o600 and removed on close
+    try:
+        yield handle, path
+    finally:
+        handle.close()
+
+
+def _private_dir(path: Path) -> None:
+    """Create `path` (and missing parents) so that it is accessible to the owner only."""
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        path.chmod(0o700)
+    except OSError:
+        pass  # not ours to tighten (e.g. a shared directory); do not abort the run
+
+
+def _tail_file(handle, limit: int) -> tuple[str, int]:
+    """Read the last `limit` lines of an output file; return (text, number of lines cut).
+
+    The file is read line by line, so only the kept lines are held in memory.
+    """
+    handle.seek(0)
+    kept: deque[bytes] = deque(maxlen=limit)
+    total = 0
+    for line in handle:
+        kept.append(line)
+        total += 1
+    text = b"".join(kept).decode("utf-8", errors="replace")
+    return text, max(0, total - limit)
 
 
 def _git(directory: Path, *args: str) -> subprocess.CompletedProcess:
@@ -1619,42 +1665,46 @@ def execute_state(
     rec["executed"] = True
     argv = rec["argv"]
     cwd = defn.base_dir / st.cwd if st.cwd else Path(run.cwd or Path.cwd())
-    try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=cwd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-    except OSError as e:
-        rec["error"] = f"{e.strerror or e} ({argv[0]})"
-        return rec
-    try:
-        out, err = proc.communicate(timeout=timeout)
-        rec["exit_code"] = proc.returncode
-    except subprocess.TimeoutExpired:
+    # The child writes straight to files (not pipes), so a grandchild that keeps the
+    # descriptors open cannot block us, and the output is never held in memory.
+    with contextlib.ExitStack() as stack:
+        sinks = {
+            name: stack.enter_context(
+                _open_output(state_dir, run.run_id, f"{st.id}-{visit}.{name}")
+            )
+            for name in ("stdout", "stderr")
+        }
         try:
-            os.killpg(
-                proc.pid, signal.SIGKILL
-            )  # the whole group, so grandchildren die too
-        except OSError:
-            proc.kill()
+            proc = subprocess.Popen(
+                argv,
+                cwd=cwd,
+                stdin=subprocess.DEVNULL,
+                stdout=sinks["stdout"][0],
+                stderr=sinks["stderr"][0],
+                start_new_session=True,
+            )
+        except OSError as e:
+            rec["error"] = f"{e.strerror or e} ({argv[0]})"
+            return rec
         try:
-            out, err = proc.communicate(timeout=5)
+            proc.wait(timeout=timeout)
+            rec["exit_code"] = proc.returncode
         except subprocess.TimeoutExpired:
-            out, err = b"", b""
-    for name, data in (("stdout", out), ("stderr", err)):
-        rec[name], rec[f"{name}_truncated"] = _tail(data, limit)
-        if state_dir is not None:
-            target = state_dir / run.run_id / f"{st.id}-{visit}.{name}"
             try:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-                rec[f"{name}_file"] = str(target)
+                os.killpg(
+                    proc.pid, signal.SIGKILL
+                )  # the whole group, so grandchildren die too
             except OSError:
-                pass  # the full text is best effort; the tail is still reported
+                proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+        for name, (handle, path) in sinks.items():
+            handle.flush()
+            rec[name], rec[f"{name}_truncated"] = _tail_file(handle, limit)
+            if path is not None:
+                rec[f"{name}_file"] = str(path)
     return rec
 
 

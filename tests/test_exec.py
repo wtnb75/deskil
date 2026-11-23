@@ -295,6 +295,69 @@ def test_timeout_kills_process_group_and_reports(flow, repo, state_dir):
     assert "before" in out
 
 
+def test_background_grandchild_does_not_cause_a_timeout(flow, repo, state_dir):
+    path = commit(
+        repo,
+        'schema = 1\nstart = "a"\n[states.a]\nprompt = "p"\n'
+        'run = ["sh", "-c", "sleep 4 & echo done"]\ntimeout = 1\n'
+        'goto = "e"\n[states.e]\nprompt = "d"\nend = true\n',
+    )
+    t0 = time.monotonic()
+    out = flow.start_run(path, state_dir)
+    assert time.monotonic() - t0 < 3
+    assert "Exit code: 0" in out
+    assert "done" in out
+
+
+def test_output_files_are_private(flow, repo, state_dir):
+    run_one(flow, repo, state_dir, "print('secret')")
+    (saved,) = state_dir.glob("*/*.stdout")
+    assert saved.stat().st_mode & 0o777 == 0o600
+    assert saved.parent.stat().st_mode & 0o777 == 0o700
+    assert state_dir.stat().st_mode & 0o777 == 0o700
+
+
+def test_output_is_kept_without_a_state_dir(flow, repo):
+    path = commit(repo, _def('["echo", "hi"]'))
+    defn = flow.load_definition(path)
+    run = flow.Run(
+        run_id="r",
+        definition=str(path),
+        definition_hash="",
+        current="a",
+        visits={"a": 1},
+        history=[],
+        status="running",
+        ref=flow.DEFAULT_REF,
+        cwd=str(repo),
+        args={},
+    )
+    rec = flow.execute_state(defn, defn.states["a"], run, None)
+    assert rec["exit_code"] == 0
+    assert rec["stdout"].strip() == "hi"
+    assert rec["stdout_file"] is None
+
+
+def test_truncated_output_without_a_file_has_no_path(flow):
+    rec = {
+        "argv": ["x"],
+        "executed": True,
+        "error": None,
+        "exit_code": 0,
+        "timeout": 5,
+        "output_lines": 1,
+        "stdout": "b\n",
+        "stdout_truncated": 3,
+        "stdout_file": None,
+        "stderr": "",
+        "stderr_truncated": 0,
+        "stderr_file": None,
+    }
+    text = flow.render_command(rec)
+    assert "3 lines truncated" in text
+    assert "None" not in text
+
+
 def test_missing_binary_is_reported_not_raised(flow, repo, state_dir):
     path = commit(repo, _def('["definitely-not-a-command-xyz"]'))
     out = flow.start_run(path, state_dir)
