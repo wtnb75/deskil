@@ -32,6 +32,11 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:  # Windows: runs are not locked
+    fcntl = None
+
 # ---------------------------------------------------------------------------
 # errors and issues
 # ---------------------------------------------------------------------------
@@ -1359,6 +1364,10 @@ def _run_path(state_dir: Path, run_id: str) -> Path:
     return state_dir / f"{run_id}.json"
 
 
+def _lock_path(state_dir: Path, run_id: str) -> Path:
+    return state_dir / f"{run_id}.lock"
+
+
 def _not_found(run_id: str, state_dir: Path) -> FlowError:
     return FlowError(f"run not found: {run_id} (looked in {state_dir})")
 
@@ -1409,23 +1418,60 @@ def save_run(state_dir: Path, run: Run) -> None:
         raise
 
 
-def _new_run_id(state_dir: Path) -> str:
-    """Pick an unused run id and reserve it by creating its (empty) run file."""
+@contextlib.contextmanager
+def _run_lock(state_dir: Path, run_id: str):
+    """Hold an exclusive lock on a run, or fail at once if another process has it.
+
+    The lock is `flock` on `<run id>.lock` (not on the run file, which is replaced
+    on every save). The OS drops it when the process dies. Without `fcntl`
+    (Windows) there is no locking.
+    """
+    if fcntl is None:
+        yield
+        return
+    _private_dir(state_dir)
+    fd = os.open(_lock_path(state_dir, run_id), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise FlowError(
+                f"run is in use by another process: {run_id} (wait for it to finish)"
+            ) from None
+        yield
+    finally:
+        os.close(fd)  # closing the descriptor releases the lock
+
+
+def _new_run_id(state_dir: Path, stack: contextlib.ExitStack | None = None) -> str:
+    """Pick an unused run id and reserve it by creating its (empty) run file.
+
+    With `stack`, the run is locked before its file is created and stays locked
+    until the stack closes, so `gc` never sees the reserved file unlocked.
+    """
     _private_dir(state_dir)
     stamp = datetime.now().strftime("%Y%m%d-%H%M")
     while True:
         suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=3))
         run_id = f"{stamp}-{suffix}"
-        try:
-            os.close(
-                os.open(
-                    _run_path(state_dir, run_id),
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o600,
+        with contextlib.ExitStack() as attempt:
+            if stack is not None:
+                try:
+                    attempt.enter_context(_run_lock(state_dir, run_id))
+                except FlowError:
+                    continue
+            try:
+                os.close(
+                    os.open(
+                        _run_path(state_dir, run_id),
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                        0o600,
+                    )
                 )
-            )
-        except FileExistsError:
-            continue
+            except FileExistsError:
+                continue
+            if stack is not None:
+                stack.enter_context(attempt.pop_all())
         return run_id
 
 
@@ -1734,28 +1780,30 @@ def start_run(
     """
     defn = load_definition(defn_path)
     resolved = resolve_args(defn, args or {})
-    run = Run(
-        run_id=_new_run_id(state_dir),
-        definition=str(defn.path),
-        definition_hash="",
-        current=defn.start,
-        visits={defn.start: 1},
-        history=[],
-        status="ended" if defn.states[defn.start].end else "running",
-        ref=ref,
-        cwd=str(Path.cwd()),
-        args=resolved,
-        exceeded={},
-    )
-    try:
-        run.definition_hash = defn.hash
-        out = _enter(defn, run, state_dir, cmd)
-        save_run(state_dir, run)
-    except BaseException:
-        _run_path(state_dir, run.run_id).unlink(
-            missing_ok=True
-        )  # release the reserved id
-        raise
+    with contextlib.ExitStack() as stack:
+        run = Run(
+            run_id=_new_run_id(state_dir, stack),
+            definition=str(defn.path),
+            definition_hash="",
+            current=defn.start,
+            visits={defn.start: 1},
+            history=[],
+            status="ended" if defn.states[defn.start].end else "running",
+            ref=ref,
+            cwd=str(Path.cwd()),
+            args=resolved,
+            exceeded={},
+        )
+        try:
+            run.definition_hash = defn.hash
+            out = _enter(defn, run, state_dir, cmd)
+            save_run(state_dir, run)
+        except BaseException:
+            _run_path(state_dir, run.run_id).unlink(
+                missing_ok=True
+            )  # release the reserved id
+            _lock_path(state_dir, run.run_id).unlink(missing_ok=True)
+            raise
     return out
 
 
@@ -1770,8 +1818,26 @@ def next_step(
     """Record the result of the current step and return the next step's output.
 
     A `gate` step needs `approval` (the user's answer); it is kept in the history.
-    Nothing is written unless every check passes.
+    Nothing is written unless every check passes. The run is locked from the read to
+    the save, so two `next` on one run cannot both run the step's command.
     """
+    if not RUN_ID_RE.match(run_id) or not _run_path(state_dir, run_id).exists():
+        raise _not_found(run_id, state_dir)
+    with _run_lock(state_dir, run_id):
+        if not _run_path(state_dir, run_id).exists():  # removed since the check
+            _lock_path(state_dir, run_id).unlink(missing_ok=True)
+            raise _not_found(run_id, state_dir)
+        return _next_step_locked(run_id, label, state_dir, cmd, force, approval)
+
+
+def _next_step_locked(
+    run_id: str,
+    label: str | None,
+    state_dir: Path,
+    cmd: str,
+    force: bool,
+    approval: str | None,
+) -> str:
     run = load_run(state_dir, run_id)
     if run.status == "ended":
         raise FlowError(f"run already ended: {run_id}")
@@ -1887,28 +1953,59 @@ def runs_text(state_dir: Path) -> str:
 
 
 def gc_runs(
-    state_dir: Path, older_than: float | None = None, done: bool = False
+    state_dir: Path,
+    older_than: float | None = None,
+    done: bool = False,
+    corrupt: bool = False,
 ) -> str:
-    """Delete runs that match every given filter; unreadable run files are kept.
+    """Delete runs that match every given filter; unreadable run files are kept
+    unless `corrupt` is given.
 
     `older_than` is a number of days since the run was last updated; `done`
-    selects runs that have ended. At least one filter is required.
+    selects runs that have ended. `corrupt` instead deletes the unreadable run
+    files (such as the empty file a killed `start` leaves) and nothing else.
+    A run that another process holds is skipped. At least one filter is required.
     """
-    if older_than is None and not done:
-        raise FlowError("gc needs --older-than DAYS and/or --done")
+    if older_than is None and not done and not corrupt:
+        raise FlowError("gc needs --older-than DAYS, --done and/or --corrupt")
+    if corrupt and (older_than is not None or done):
+        raise FlowError("--corrupt cannot be combined with --older-than or --done")
     if older_than is not None and not 0 <= older_than < float("inf"):
         raise FlowError("--older-than must be a non-negative number of days")
     cutoff = None if older_than is None else time.time() - older_than * 86400
+
+    def selected(run: Run | None, mtime: float) -> bool:
+        if corrupt != (run is None):
+            return False
+        if run is not None:
+            if done and run.status != "ended":
+                return False
+            if cutoff is not None and mtime > cutoff:
+                return False
+        return True
+
     removed = []
     for run_id, run, mtime in _scan_runs(state_dir):
-        if run is None:
+        if not selected(run, mtime):
             continue
-        if done and run.status != "ended":
-            continue
-        if cutoff is not None and mtime > cutoff:
-            continue
-        _run_path(state_dir, run_id).unlink(missing_ok=True)
-        shutil.rmtree(state_dir / run_id, ignore_errors=True)
+        try:
+            with _run_lock(state_dir, run_id):
+                # The run may have been saved or removed since the scan: check again.
+                try:
+                    mtime = _run_path(state_dir, run_id).stat().st_mtime
+                except OSError:
+                    continue  # already removed
+                try:
+                    run = load_run(state_dir, run_id)
+                except FlowError:
+                    run = None
+                if not selected(run, mtime):
+                    continue
+                _run_path(state_dir, run_id).unlink(missing_ok=True)
+                shutil.rmtree(state_dir / run_id, ignore_errors=True)
+                _lock_path(state_dir, run_id).unlink(missing_ok=True)
+        except FlowError:
+            continue  # in use by another process
         removed.append(run_id)
     if not removed:
         return "no runs removed\n"
@@ -2741,6 +2838,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="runs not updated for more than DAYS days",
     )
     p.add_argument("--done", action="store_true", help="runs that have ended")
+    p.add_argument(
+        "--corrupt",
+        action="store_true",
+        help="unreadable run files, e.g. left by a killed start (not combined with the others)",
+    )
 
     p = sub.add_parser("lint", help="check a definition")
     p.add_argument("definition", type=Path)
@@ -2872,7 +2974,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "runs":
             out = runs_text(state_dir)
         elif args.command == "gc":
-            out = gc_runs(state_dir, args.older_than, args.done)
+            out = gc_runs(state_dir, args.older_than, args.done, args.corrupt)
         else:
             out = status_text(args.run_id, state_dir)
         sys.stdout.write(out)

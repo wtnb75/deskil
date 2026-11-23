@@ -49,6 +49,7 @@ uv run flow.py new <flow.toml>                        # write a template definit
 uv run flow.py fmt <flow.toml> [--check]              # sort keys, normalise layout, keep comments
 uv run flow.py runs                                   # list runs (id, status, updated, definition)
 uv run flow.py gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
+uv run flow.py gc --corrupt                           # delete unreadable run files (e.g. left by a killed start)
 uv run flow.py stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
 uv run flow.py export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
 uv run flow.py start <flow.toml> [--ref main]         # start a run, print the first step
@@ -65,7 +66,8 @@ In a `run` argument, `${DEF_DIR}` is replaced by the directory of the definition
 (for example `"${DEF_DIR}/../../scripts/x.py"`); no other variable is expanded.
 
 Run state is stored in `.flow/runs/` of the git root (of the working directory outside a repository)
-(override with `--state-dir` or `FLOW_STATE_DIR`). See
+(override with `--state-dir` or `FLOW_STATE_DIR`). `next` locks the run (`flock` on `<run id>.lock`)
+and fails at once if another process holds it; this works on macOS and Linux only (no locking on Windows). See
 `plugins/feature-a/skills/review-loop/` for a complete example, and
 `docs/superpowers/specs/2026-11-22-flow-engine-design.md` for the design (in Japanese).
 

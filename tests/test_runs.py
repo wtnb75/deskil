@@ -242,7 +242,8 @@ def test_save_run_does_not_depend_on_a_fixed_temp_name(flow, env):
     rid, _ = start(flow, env)
     (env[1] / f"{rid}.json.tmp").mkdir()
     nxt(flow, env, rid, "again")
-    assert sorted(f.name for f in env[1].iterdir()) == [
+    names = [f.name for f in env[1].iterdir() if f.suffix != ".lock"]
+    assert sorted(names) == [
         f"{rid}.json",
         f"{rid}.json.tmp",
     ]
