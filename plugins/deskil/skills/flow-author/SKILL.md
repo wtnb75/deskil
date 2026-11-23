@@ -70,7 +70,10 @@ Rules:
 
 Never rename a state by hand. Use
 `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py rename <flow.toml> <old> <new>`.
-It updates every reference and refuses a rename that would break the definition.
+It updates every reference in that file and refuses a rename that would break the definition.
+It does not touch other files: an end state (`end = true`) of a part is named by the `exits` keys
+of the include states in every includer, so renaming one is refused. If you really need it, rename
+the `exits` keys in each includer by hand, then re-run with `--allow-end`.
 
 ## 5. Wire up the skill
 

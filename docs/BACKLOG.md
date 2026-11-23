@@ -41,14 +41,6 @@
 
 ## todo / ready
 
-### B-053 flow: rename が includer の exits を直せない制限を扱う
-- 状態: ready
-- 優先度: P3
-- 追加: 2026-11-23
-- 背景: 全体レビューで検証済み。部品の終了ステートを rename すると、部品単体の lint は通って書き換わるが、includer の `exits` のキーが古いままになり `exits-missing` / `exits-unknown` になる。`rename_state` の docstring（everywhere it is referenced）は実際より広く言っている。B-037 は includer 側の `exits` の「値」を直したが、部品側の rename は範囲外だった。
-- 概要: 案: docstring と README に制限を書く／部品の終了ステートの rename を警告して拒否する／includer を探して書き換える（探索の範囲が未決）。
-- 判断: 案 B。部品の終了ステートの rename は、警告を出して拒否する（includer の `exits` のキーを壊すため）。拒否のメッセージで、includer 側も手で直す手順を案内する。あわせて `rename_state` の docstring と README に制限を書く。includer を探して書き換える案は、探索の範囲が未決で、複数ファイルを書く途中の失敗が危ないので採らない。
-
 ### B-054 backlog: list --status の不正な値を拒否する
 - 状態: ready
 - 優先度: P3
@@ -624,3 +616,12 @@
 - 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
 - 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
 - 判断: 解決済みのため取り下げる。`impl/decide-part.toml` は B-032 の時点で `../decide/flow.toml` への symlink（mode 120000）になっており、実体は 1 つである。バックログの背景（コピー）は事実と違っていた。
+
+### B-053 flow: rename が includer の exits を直せない制限を扱う
+- 状態: done
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。部品の終了ステートを rename すると、部品単体の lint は通って書き換わるが、includer の `exits` のキーが古いままになり `exits-missing` / `exits-unknown` になる。`rename_state` の docstring（everywhere it is referenced）は実際より広く言っている。B-037 は includer 側の `exits` の「値」を直したが、部品側の rename は範囲外だった。
+- 概要: 案: docstring と README に制限を書く／部品の終了ステートの rename を警告して拒否する／includer を探して書き換える（探索の範囲が未決）。
+- 判断: 案 B。部品の終了ステートの rename は、警告を出して拒否する（includer の `exits` のキーを壊すため）。拒否のメッセージで、includer 側も手で直す手順を案内する。あわせて `rename_state` の docstring と README に制限を書く。includer を探して書き換える案は、探索の範囲が未決で、複数ファイルを書く途中の失敗が危ないので採らない。
+- 完了: 2026-11-23
