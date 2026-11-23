@@ -1,6 +1,6 @@
 {
   "name": "deskil",
-  "owner": { "name": "Watanabe Takashi" },
+  "owner": { "name": "Watanabe AI Takashi" },
   "metadata": { "description": "deskil plugin marketplace" },
   "plugins": [
     {

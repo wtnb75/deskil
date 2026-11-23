@@ -28,7 +28,9 @@ def test_plugin_json_names_deskil():
     data = json.loads(
         (CORE / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
-    assert data["name"] == "deskil" and data["version"]
+    assert data["name"] == "deskil" and data["license"]
+    # version is omitted on purpose: the commit SHA is used as the version
+    assert "version" not in data
 
 
 def test_engine_is_bundled_by_relative_symlink():

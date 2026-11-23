@@ -1,6 +1,6 @@
 {
   "name": "feature-b",
-  "version": "0.1.0",
   "description": "Sample plugin B",
-  "author": { "name": "Watanabe Takashi" }
+  "author": { "name": "Watanabe AI Takashi" },
+  "license": "MIT"
 }
