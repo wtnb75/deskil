@@ -333,9 +333,8 @@ def test_implement_prepare_branches_from_a_fetched_origin(tmp_path):
     step = prepare_step(tmp_path)
     assert "git fetch origin" in step
     assert "git symbolic-ref --short refs/remotes/origin/HEAD" in step
-    assert (
-        "git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track" in step
-    )
+    assert "git switch -c backlog/<ID> origin/<default branch> --no-track" in step
+    assert "slug" not in step
     assert "clean" in step  # a dirty working tree still stops the flow
 
 

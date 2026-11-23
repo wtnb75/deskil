@@ -13,7 +13,7 @@ prompt = """If the user named an item, use it. Otherwise run `git fetch --prune 
 `git symbolic-ref --short refs/remotes/origin/HEAD` (it prints `origin/<default branch>`; if that fails, stop and ask the user).
 Read the backlog from that remote branch, not from the working tree (the local default branch may be behind after a merge):
 `backlog.py --ref origin/<default branch> list --status ready --not-started --unblocked`
-(it hides items that already have a `backlog/<ID>-*` branch on origin, i.e. work in progress, and items with an
+(it hides items that already have a `backlog/<ID>` branch on origin, i.e. work in progress, and items with an
 unfinished dependency) and take the first item (the list is ordered by priority).
 Run `backlog.py --ref origin/<default branch> show <ID>` and read its 判断: it is the approach to implement."""
 
@@ -63,8 +63,8 @@ If anything else is changed, stop here: tell the user and do not run the next co
 Run `git fetch origin`, then find the default branch with `git symbolic-ref --short refs/remotes/origin/HEAD`
 (it prints `origin/<default branch>`). If that fails, stop and ask the user which branch to start from.
 Create the branch from the fetched remote branch, not from the local one:
-`git switch -c backlog/<ID>-<slug> origin/<default branch> --no-track`
-(slug: the item title as lowercase ASCII words joined by hyphens). Do not update the local default branch.
+`git switch -c backlog/<ID> origin/<default branch> --no-track`
+(the branch name is the item id only, e.g. `backlog/B-030`; do not add the title). Do not update the local default branch.
 If the switch refuses because the carried docs/BACKLOG.md change conflicts with origin, do not force it: stop and tell the user.
 If a worktree skill or tool is available, you may create the branch in a worktree from the same start point instead."""
 goto = "plan"
