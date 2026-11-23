@@ -16,6 +16,7 @@ Read the backlog from that remote branch, not from the working tree (the local d
 `backlog.py --ref origin/<default branch> list --status ready --not-started --unblocked`
 (it hides items that already have a `backlog/<ID>` branch on origin, i.e. work in progress, and items with an
 unfinished dependency) and take the first item (the list is ordered by priority).
+If it prints `hidden by --not-started: ...` on stderr, show those IDs to the user: their branch may be left over from a closed PR.
 Run `backlog.py --ref origin/<default branch> show <ID>` and read its 判断: it is the approach to implement."""
 
 [[states.pick.choices]]

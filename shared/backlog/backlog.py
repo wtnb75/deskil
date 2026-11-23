@@ -766,6 +766,14 @@ def run(args: argparse.Namespace) -> int:
         else:
             statuses = None
         exclude = started_ids() if args.not_started else None
+        if exclude:
+            hidden = [i.id for i in sorted_items(bl, statuses) if i.id in exclude]
+            if hidden:
+                print(
+                    f"backlog: hidden by --not-started (a backlog/<ID> branch exists on origin): "
+                    f"{', '.join(hidden)}",
+                    file=sys.stderr,
+                )
         out = render_list(
             bl, statuses, args.priority, args.limit, exclude, args.unblocked
         )
