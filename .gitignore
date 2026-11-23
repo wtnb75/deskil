@@ -3,3 +3,8 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.venv/
+build/
+*.egg-info/
+# no dependencies, so a lock file would only add churn
+uv.lock
