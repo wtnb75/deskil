@@ -41,15 +41,6 @@
 
 ## todo / ready
 
-### B-057 flow: fmt と rename の書き込みを共通の原子的書き込みにする
-- 状態: ready
-- 優先度: P3
-- 依存: B-056
-- 追加: 2026-11-23
-- 背景: B-021 のレビューで 2 回却下した指摘（一時ファイル書き込みの共通化、`os.replace` が symlink を通常ファイルに置き換え権限を引き継がない）。`fmt` は `.fmt.tmp`、`rename` は `.rename.tmp` の固定名で書き、`save_run` は `mkstemp` を使うなど、方式が 3 通りある。B-056（backlog.py の書き込み）と同じ論点。
-- 概要: 一時ファイルの作成、権限の引き継ぎ、symlink の扱い（実体へ書くか、拒否するか）を 1 つの関数にまとめ、`fmt`・`rename`・`save_run` が使う。B-056 の決定に合わせる。
-- 判断: `flow.py` に、`backlog.py` の `write_atomic`（B-056）と同じ方式の関数を 1 つ置く: symlink は実体へ書く、既存ファイルの権限を引き継ぐ、`mkstemp` で同じディレクトリに一時ファイルを作る。`fmt`・`rename`・`save_run` がこれを使う。`flow.py` は標準ライブラリだけの方針なので `backlog.py` から import せず、同じ内容を持つ。
-
 ### B-059 flow: 部品と { file } の文面の {{arg.x}} の未宣言を lint で見つける
 - 状態: ready
 - 優先度: P3
@@ -625,4 +616,14 @@
 - 背景: 全体レビュー（コードを読んだ範囲）。`backlog.py list --status Todo` のような誤りがエラーにならず、空の出力を返すので、項目がないのか指定の誤りか区別できない。
 - 概要: `--status` の値が `STATES` にないときは `BacklogError` にする。`--priority` と同じ扱い。
 - 判断: `backlog.py list --status` の値が `STATES` にないときは `BacklogError` にする（カンマ区切りの各値を検査する）。`--priority` の検査と同じ扱い。テストを足す。
+- 完了: 2026-11-23
+
+### B-057 flow: fmt と rename の書き込みを共通の原子的書き込みにする
+- 状態: done
+- 優先度: P3
+- 依存: B-056
+- 追加: 2026-11-23
+- 背景: B-021 のレビューで 2 回却下した指摘（一時ファイル書き込みの共通化、`os.replace` が symlink を通常ファイルに置き換え権限を引き継がない）。`fmt` は `.fmt.tmp`、`rename` は `.rename.tmp` の固定名で書き、`save_run` は `mkstemp` を使うなど、方式が 3 通りある。B-056（backlog.py の書き込み）と同じ論点。
+- 概要: 一時ファイルの作成、権限の引き継ぎ、symlink の扱い（実体へ書くか、拒否するか）を 1 つの関数にまとめ、`fmt`・`rename`・`save_run` が使う。B-056 の決定に合わせる。
+- 判断: `flow.py` に、`backlog.py` の `write_atomic`（B-056）と同じ方式の関数を 1 つ置く: symlink は実体へ書く、既存ファイルの権限を引き継ぐ、`mkstemp` で同じディレクトリに一時ファイルを作る。`fmt`・`rename`・`save_run` がこれを使う。`flow.py` は標準ライブラリだけの方針なので `backlog.py` から import せず、同じ内容を持つ。
 - 完了: 2026-11-23

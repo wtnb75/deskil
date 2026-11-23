@@ -1438,20 +1438,36 @@ def load_run(state_dir: Path, run_id: str) -> Run:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
 
 
+def write_atomic(path: Path, text: str) -> None:
+    """Write `text` to a temp file next to the real target, then os.replace it into place.
+
+    A symlink is resolved first so the link itself is kept and its target is replaced. The
+    permission bits of the existing file are carried over to the new one. Same behavior as
+    `write_atomic` in backlog.py (this script is stdlib-only, so it keeps its own copy)."""
+    target = Path(os.path.realpath(path))
+    try:
+        mode: int | None = target.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        mode = None
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=f".{target.name}.", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        if mode is not None:
+            os.chmod(tmp_name, mode)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
 def save_run(state_dir: Path, run: Run) -> None:
     """Write the run atomically (temp file + rename)."""
     _private_dir(state_dir)
     path = _run_path(state_dir, run.run_id)
-    fd, tmp_name = tempfile.mkstemp(
-        dir=state_dir, prefix=f"{run.run_id}.", suffix=".tmp"
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n")
-        os.replace(tmp_name, path)
-    except BaseException:
-        Path(tmp_name).unlink(missing_ok=True)
-        raise
+    write_atomic(path, json.dumps({"schema": 1, **asdict(run)}, indent=2) + "\n")
 
 
 @contextlib.contextmanager
@@ -2536,16 +2552,21 @@ def rename_state(defn_path: Path, old: str, new: str, allow_end: bool = False) -
             f"cannot find the table header of state '{old}' in a supported form "
             f"([states.{old}]); {path} was not changed"
         )
-    tmp = path.with_name(path.name + ".rename.tmp")
-    tmp.write_bytes(new_text.encode("utf-8"))
+    # Lint the new text from a scratch file next to the flow (relative parts resolve the same).
+    fd, tmp_name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    tmp = Path(tmp_name)
     try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(new_text.encode("utf-8"))
         after = errors_of(tmp)
         worse = sorted(code for code, n in after.items() if n > before.get(code, 0))
         if worse:
             raise FlowError(
                 f"rename would introduce lint errors ({', '.join(worse)}); {path} was not changed"
             )
-        os.replace(tmp, path)
+        write_atomic(path, new_text)
     finally:
         tmp.unlink(missing_ok=True)
 
@@ -2777,12 +2798,7 @@ def format_definition(path: Path, check: bool = False) -> bool:
     if new == old:
         return False
     if not check:
-        tmp = path.with_name(path.name + ".fmt.tmp")
-        try:
-            tmp.write_bytes(new.encode("utf-8"))
-            os.replace(tmp, path)
-        finally:
-            tmp.unlink(missing_ok=True)
+        write_atomic(path, new)
     return True
 
 
