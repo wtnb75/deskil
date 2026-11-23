@@ -1752,18 +1752,47 @@ def _scan_runs(state_dir: Path) -> list[tuple[str, Run | None, float]]:
     return found
 
 
+def _definition_mark(run: Run, current: dict[str, str | None]) -> str:
+    """Suffix for a run whose definition is missing or changed, else "".
+
+    `current` caches the hash of each definition file by path (None if it
+    cannot be loaded), so that runs of the same definition load it once.
+    """
+    path = Path(run.definition)
+    if not path.is_file():
+        return " [definition missing]"
+    if run.definition not in current:
+        try:
+            current[run.definition] = load_definition(path).hash
+        except FlowError:
+            current[run.definition] = None
+    return (
+        ""
+        if current[run.definition] == run.definition_hash
+        else " [definition changed]"
+    )
+
+
 def runs_text(state_dir: Path) -> str:
-    """List the runs: id, status, last update and definition."""
+    """List the runs: id, status, last update and definition.
+
+    A run whose definition no longer matches the one it started with is marked:
+    continue it with `next --force`, or remove it with `gc`.
+    """
     rows = _scan_runs(state_dir)
     if not rows:
         return f"no runs in {state_dir}\n"
     lines = []
+    current: dict[str, str | None] = {}
     for run_id, run, mtime in rows:
         updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
         if run is None:
             lines.append(f"{run_id}  corrupt  {updated}")
         else:
-            lines.append(f"{run_id}  {run.status}  {updated}  {run.definition}")
+            lines.append(
+                f"{run_id}  {run.status}  {updated}  {run.definition}"
+                + _definition_mark(run, current)
+            )
     return "\n".join(lines) + "\n"
 
 
@@ -2598,7 +2627,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true", required=True, help="output JSON")
 
     sub.add_parser(
-        "runs", parents=[common], help="list the runs (id, status, updated, definition)"
+        "runs",
+        parents=[common],
+        help="list the runs (id, status, updated, definition); marks runs whose definition changed",
     )
 
     p = sub.add_parser(
