@@ -41,6 +41,133 @@
 
 ## todo / ready
 
+### B-046 flow: run が起動するスクリプト本体も ref と比べる
+- 状態: todo
+- 優先度: P1
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。`_ref_check` が比べるのは定義の TOML だけで、コミット済みの `run = ["sh", "${DEF_DIR}/s.sh"]` の `s.sh` を未コミットで書き換えても実行された。`add` / `prio` / `decide` の `run` も、symlink 先の `shared/backlog/backlog.py` が未コミットのまま実行される。仕様書（flow-engine-design.md §コマンドの実行）の対象は TOML のみで、`execute_state` の docstring（コマンドを紛れ込ませられない）は実際より強く言っている。
+- 概要: 保証の範囲を決める。案: argv が指すファイルも ref と比べる／範囲を TOML に限ると文書と docstring に明記する。どこまでを「起動対象」とみなすか（`uv run X` の X、シェル経由）が未決。
+
+### B-047 flow: コマンド出力ファイルの権限を run の JSON と揃える
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。run の JSON は 0o600 だが、`<state>-<visit>.stdout` と `.stderr` は 0o644 で、出力に含まれる秘密を他のユーザーが読める。
+- 概要: 出力ファイルと `<run-id>` ディレクトリを 0o600 / 0o700 で作る。`.flow/runs` 全体の権限の扱いも合わせて決める。
+
+### B-048 flow: `{ file }` の prompt を定義のハッシュに含める
+- 状態: todo
+- 優先度: P1
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。prompt ファイルを書き換えてもハッシュが変わらず、`next` が変更を検知せず、`flow runs` の `[definition changed]` も出ない。`Definition.hash` のコメント（すべてのファイルのテキスト）と食い違う。`{ file }` は描画時に遅延して読まれ、lint・build・hash と別の時点のテキストになる。
+- 概要: `{ file }` で参照されるファイルをハッシュと `sources` に含める。`_ref_check` の対象にするか（prompt は実行されないので比べるだけでよいか）が未決。既存の run のハッシュが変わる移行の扱いも要る。
+
+### B-049 flow: `next --force` のあとの `stats` が誤った超過回数を出す
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。`--force` が `run.definition_hash` を新しい値に上書きするので、`stats_json` のハッシュ検査を素通りし、古い履歴を新しい定義で再生する。`max_visits` を 2 から 1 に変えて `--force` した run で、実際には起きていない超過が 1 回数えられた。B-020 が `stats` を履歴の再生にした理由（定義が変わればハッシュ不一致でエラーになる）を、`--force` が無効にしている。
+- 概要: 案: `next` が `on_exceed` へ進んだ回数を run に記録して再生をやめる（B-020 の判断の見直し。B-020 のレビューで 2 回却下した指摘「再生でなく記録で持つべき」と同じ）／`--force` した run は `stats` を拒否する印を残す。どちらにするかが未決。
+
+### B-050 flow: コマンドの終了コードを正しく記録し、出力を捨てない
+- 状態: todo
+- 優先度: P1
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み（前半）。`sh -c 'sleep 4 & echo done'` に timeout=1 を付けると、コマンド自体は成功しているのに `Exit code: timeout` と表示された。バックグラウンドの孫がパイプを握り続けるため。コードを読んだ範囲では、孫が `setsid` で抜けると 2 回目の `communicate` も失敗し、`out, err = b"", b""` で出力をすべて捨てる。
+- 概要: 本体が終わった時点の `returncode` を記録し、timeout と区別する。パイプが閉じない場合は、それまでに読めた出力を残す。出力を全量メモリに持つ点（`communicate`）も、ファイルへ流して末尾だけ保持する形にできるか合わせて決める。
+
+### B-051 decide: record の上限と失敗時の文面を直す
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー（コードを読んだ範囲）。`decide/flow.toml` の `record` は `max_visits = 30` で、N 件の一括決定では N+1 回訪れるため、30 件以上は `report_fail` に落ちる。`report_fail` の文面は「lint が失敗した」で、理由が違う。`list --limit` に上限はない。
+- 概要: 上限の扱い（バッチの件数に上限を設ける／`record` を件数で縛らない）と、超過時の専用の終了ステートを決める。`impl/decide-part.toml` にも同じ修正が要る（B-052 と関係する）。
+
+### B-052 deskil-dev: decide-part.toml と decide/flow.toml の重複をなくす
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
+- 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
+
+### B-053 flow: rename が includer の exits を直せない制限を扱う
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。部品の終了ステートを rename すると、部品単体の lint は通って書き換わるが、includer の `exits` のキーが古いままになり `exits-missing` / `exits-unknown` になる。`rename_state` の docstring（everywhere it is referenced）は実際より広く言っている。B-037 は includer 側の `exits` の「値」を直したが、部品側の rename は範囲外だった。
+- 概要: 案: docstring と README に制限を書く／部品の終了ステートの rename を警告して拒否する／includer を探して書き換える（探索の範囲が未決）。
+
+### B-054 backlog: list --status の不正な値を拒否する
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー（コードを読んだ範囲）。`backlog.py list --status Todo` のような誤りがエラーにならず、空の出力を返すので、項目がないのか指定の誤りか区別できない。
+- 概要: `--status` の値が `STATES` にないときは `BacklogError` にする。`--priority` と同じ扱い。
+
+### B-055 flow: 異常終了で残る run の後始末と並行実行
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: 全体レビュー（コードを読んだ範囲）。run ID は空ファイルで先に確保するので、コマンド実行中に強制終了されると空ファイルが `corrupt` として残り、`gc` は破損した run を消さない。`next` を並行して実行するとロックがなく、更新が失われたりコマンドが二重に実行されたりする。
+- 概要: 空の run ファイルを `gc` が消せるようにする（`--corrupt` など）。並行実行はロックファイルで防ぐか、非対応と明記するかが未決。
+
+### B-056 backlog: 書き込みを一時ファイルと置き換えで原子的にする
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: 全体レビュー。`write_checked` は `Path.write_text` で直接書くので、書き込み中に中断すると docs/BACKLOG.md が切り詰められる。`flow.py` の `save_run` は一時ファイルと `os.replace` で原子的に書いており、方式が揃っていない。
+- 概要: 同じディレクトリの一時ファイルへ書いて `os.replace` する。symlink と権限の扱いは B-021 で却下した `fmt` / `rename` の件と同じ論点なので、合わせて決める。
+
+### B-057 flow: fmt と rename の書き込みを共通の原子的書き込みにする
+- 状態: todo
+- 優先度: P3
+- 依存: B-056
+- 追加: 2026-11-23
+- 背景: B-021 のレビューで 2 回却下した指摘（一時ファイル書き込みの共通化、`os.replace` が symlink を通常ファイルに置き換え権限を引き継がない）。`fmt` は `.fmt.tmp`、`rename` は `.rename.tmp` の固定名で書き、`save_run` は `mkstemp` を使うなど、方式が 3 通りある。B-056（backlog.py の書き込み）と同じ論点。
+- 概要: 一時ファイルの作成、権限の引き継ぎ、symlink の扱い（実体へ書くか、拒否するか）を 1 つの関数にまとめ、`fmt`・`rename`・`save_run` が使う。B-056 の決定に合わせる。
+
+### B-058 flow: include と symlink の検査の残りの穴を塞ぐ
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: 却下した指摘が 4 件重なっている（B-038 と B-041 で、リポジトリ外の symlink を検査せず追跡するだけの点。B-038 と B-017 で、`include` のパスを `posixpath.normpath` で字句的に正規化するため `lnk/../x.toml` がリンクを通した意味とずれる点）。いずれも攻撃の前提が重く、重大度は低い。優先度は P2 を提案する（回数が多いため。決めるのは prio）。
+- 概要: 外側の symlink の扱い（コミット済みのリンクと比べる／拒否する）と、`..` を含む include パスの検査（拒否するか、リンクを辿って解決するか）を決める。B-046（実行対象の保証の範囲）と同じ場で決めるとよい。
+
+### B-059 flow: 部品と { file } の文面の {{arg.x}} の未宣言を lint で見つける
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: B-018 で却下した指摘。部品の文面や `{ file }` の文面にある `{{arg.x}}` が未宣言でも lint を通り、`next` の描画で `unknown argument in a text` になる。ステートを進める途中で落ち、同じエラーが繰り返される。
+- 概要: 展開後の定義（部品を含む）と `{ file }` の中身を読んで、ルートの `[args]` と照合する。`dry-run` も引数なしで描画するので見つけられない点も合わせて扱う。
+
+### B-060 backlog: ブランチが残った項目が pick から黙って消えるのを知らせる
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: B-031 で却下した指摘。`started_ids` は origin に `backlog/<ID>` のブランチがあれば着手済みとみなす。PR を閉じただけでブランチが残った項目は、警告なしに `--not-started` から外れ続ける。
+- 概要: `list --not-started` が除いた項目の ID を標準エラーに出す（または `--started-only` で一覧する）。`impl` の `pick` で「除かれた項目」をユーザーに見せるかが未決。
+
+### B-061 backlog: origin の別項目との ID の重複を検出する
+- 状態: todo
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: B-042 で却下した指摘 2 件。`next-id` が見る作業ブランチは新しい順 20 本までで、マージ済みで未削除のブランチに埋まると、長く生きている PR のブランチを取りこぼす。`lint --against <ref>` で origin 側の ID との重複を検出する案は、B-042 の判断が別項目としていた。
+- 概要: `next-id` の対象を未マージのブランチ（`--no-merged`）に絞る。`lint --against <ref>` で、別ブランチの項目と ID が重なっていないかを検査する。
+
+### B-062 bench: tokens.py にサブエージェントの記録を含める
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: B-014 で却下した指摘 2 件（altitude と code-review）。`tokens.py` はサブエージェント（sidechain）の記録を集計しない。`impl` の `review` は `code-review` などのスキルでサブエージェントを使うので、deskil 版のトークン数が低く出る。制限は文書に書いてある。
+- 概要: sidechain の記録を含めて集計する（別行にするか、合算するか）。ログの置き場所（セッションの下の別ファイル）の読み方が未決。
+
+### B-063 flow: flow.toml の JSON Schema を Taplo で使えるようにする
+- 状態: todo
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: `flow.toml` の検査は `flow.py lint` だけで、書いている間のエディタの補完やエラー表示がない。TOML には YAML の `$schema` コメントのような標準はないが、Taplo（VS Code の Even Better TOML 拡張）は `#:schema <path>` と `.taplo.toml` の `[[rule]]` で JSON Schema を使える。
+- 概要: 構造（キー名、型、`choices` など）を表す JSON Schema を用意し、`.taplo.toml` で `plugins/*/skills/*/flow.toml` に関連づける。遷移先の存在、到達性、`exits` の対応、`{file}` の実在は、スキーマで表せないので `flow.py lint` に残す。`flow.py` は標準ライブラリだけの方針なので、スキーマは別ファイルにし、`lint` の `unknown-key` などと食い違わないよう、テストで一致を確かめる方法が未決。`flow.py new` の雛形に `#:schema` を入れるかも決める。
+
 ## done / dropped
 
 ### B-009 feature 追加: バックログ管理スキル
