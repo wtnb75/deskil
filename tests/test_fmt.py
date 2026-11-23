@@ -100,6 +100,20 @@ def test_fmt_is_idempotent_and_preserves_data(flow, tmp_path, write_def):
     assert p.read_text(encoding="utf-8") == once
 
 
+def test_fmt_keeps_mode_and_symlink(flow, tmp_path, write_def):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real = write_def(real_dir, MESSY)
+    real.chmod(0o640)
+    link = tmp_path / "link.toml"
+    link.symlink_to(real)
+    assert flow.format_definition(link) is True
+    assert link.is_symlink()
+    assert (real.stat().st_mode & 0o7777) == 0o640
+    assert tomllib.loads(real.read_text(encoding="utf-8")) == tomllib.loads(MESSY)
+    assert sorted(x.name for x in real_dir.iterdir()) == [real.name]
+
+
 def test_fmt_check_does_not_write(flow, tmp_path, write_def):
     p = write_def(tmp_path, MESSY)
     assert flow.format_definition(p, check=True) is True

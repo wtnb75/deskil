@@ -47,6 +47,20 @@ def test_rename_updates_all_references(flow, p):
     assert flow.lint(p) == []
 
 
+def test_rename_keeps_mode_and_symlink(flow, write_def, tmp_path):
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    real = write_def(real_dir, DEF)
+    real.chmod(0o640)
+    link = tmp_path / "link.toml"
+    link.symlink_to(real)
+    flow.rename_state(link, "s2", "step_two")
+    assert link.is_symlink()
+    assert (real.stat().st_mode & 0o7777) == 0o640
+    assert "[states.step_two]" in real.read_text(encoding="utf-8")
+    assert sorted(x.name for x in real_dir.iterdir()) == [real.name]
+
+
 def test_rename_on_exceed_start_and_choice_headers(flow, p):
     flow.rename_state(p, "s3", "final", allow_end=True)
     flow.rename_state(p, "s1", "first")
