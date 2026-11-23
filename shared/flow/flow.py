@@ -1481,7 +1481,8 @@ def _open_output(state_dir: Path | None, run_id: str, name: str):
         except OSError:
             handle = None  # best effort; the tail is still reported
     if handle is None:
-        handle = tempfile.TemporaryFile()  # created 0o600 and removed on close
+        # created 0o600 and removed on close (closed in the finally below)
+        handle = tempfile.TemporaryFile()  # noqa: SIM115
     try:
         yield handle, path
     finally:
