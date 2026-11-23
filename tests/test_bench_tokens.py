@@ -79,6 +79,53 @@ def test_collect_ignores_string_content(tmp_path):
     assert tokens.collect(path) == tokens.Stats()
 
 
+def write_subagents(session_log: Path):
+    """Write two subagent logs under <session>/subagents/ (the Claude Code layout)."""
+    sub_dir = session_log.with_suffix("") / "subagents"
+    sub_dir.mkdir(parents=True)
+    write_log(
+        sub_dir / "agent-a1.jsonl",
+        [
+            assistant("s1", usage(1, 2, 3, 4), [{"type": "tool_use", "id": "u1"}]),
+            user([{"type": "tool_result", "tool_use_id": "u1", "is_error": True}]),
+        ],
+    )
+    write_log(
+        sub_dir / "agent-a2.jsonl",
+        [assistant("s1", usage(10, 0, 0, 5), [{"type": "text", "text": "x"}])],
+    )
+    (sub_dir / "notes.txt").write_text("not a log", encoding="utf-8")
+    return sub_dir
+
+
+def test_collect_without_subagents_has_zero_sub_columns(log):
+    s = tokens.collect(log)
+    assert (s.sub_total, s.sub_turns, s.sub_tool_calls, s.sub_tool_errors) == (0,) * 4
+    assert s.all_total == s.total == 243
+
+
+def test_collect_adds_subagent_logs_as_separate_columns(log):
+    write_subagents(log)
+    s = tokens.collect(log)
+    # the main columns are unchanged
+    assert (s.total, s.turns, s.tool_calls, s.tool_errors) == (243, 2, 2, 1)
+    # the same message id in two files counts twice: ids are per file
+    assert s.sub_total == (1 + 2 + 3 + 4) + (10 + 5)
+    assert (s.sub_turns, s.sub_tool_calls, s.sub_tool_errors) == (2, 1, 1)
+    assert s.all_total == 243 + 25
+
+
+def test_main_json_and_table_show_subagent_columns(log, capsys):
+    write_subagents(log)
+    assert tokens.main(["--json", f"deskil={log}"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["runs"][0]["sub_total"] == 25
+    assert data["runs"][0]["all_total"] == 268
+    assert data["means"]["deskil"]["all_total"] == 268
+    assert tokens.main([f"deskil={log}"]) == 0
+    assert "all_total" in capsys.readouterr().out
+
+
 def test_parse_targets_requires_label():
     assert tokens.parse_targets(["plain=a.jsonl"]) == [("plain", Path("a.jsonl"))]
     for bad in ("a.jsonl", "=a.jsonl", "plain="):

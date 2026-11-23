@@ -36,10 +36,12 @@ uv run shared/bench/tokens.py plain=<jsonl> plain=<jsonl> plain=<jsonl> deskil=<
 | turns | 応答の数 |
 | tool_calls | ツール呼び出しの数 |
 | tool_errors | エラーで返ったツール結果の数 |
+| sub_total / sub_turns / sub_tool_calls / sub_tool_errors | サブエージェントの記録の合計。上の total / turns / tool_calls / tool_errors に対応する |
+| all_total | `total` + `sub_total` |
 
 `cache_read` は安いトークンなので、`total` だけでなく内訳も見る。
 
-集計するのは、トライアルのセッション記録 1 ファイルだけである。サブエージェントの記録は含まないため、題材のスキルがサブエージェントを使う場合は合計が実際より小さく出る。`decide` は使わないので初版では対象外とする。
+セッション記録 `<id>.jsonl` に対応するサブエージェントの記録（`<id>/subagents/agent-*.jsonl`）も読む。本体の列（input から tool_errors まで）はセッション記録だけを数え、サブエージェントは `sub_*` の列に分けて出す。両方を合わせた量は `all_total` で見る。セッション記録を別の場所へコピーするときは、同名のディレクトリ `<id>/` も一緒にコピーする。ないと `sub_*` が 0 になり、サブエージェントを使っていない場合と区別できない。サブエージェントの記録は、メッセージ ID をファイルごとに数える。サブエージェントのトークンの内訳（input など）は出さず、合計だけを出す。
 
 ## 手順の遵守（手動の確認）
 

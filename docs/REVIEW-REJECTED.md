@@ -106,3 +106,38 @@
 
 - 指摘: `--against` の ref が読めないと `BacklogError` で止まり、ローカルの lint の結果が表示されない。
 - 却下の理由: 原因（ref を読めない）がエラーで明示され、ref を直せば済む。ローカルの lint は `--against` なしで実行できる。
+
+## B-062 / code-review / `shared/bench/tokens.py:90`
+
+- 指摘: 別の配置のサブエージェントのログ（入れ子や別名）があると `sub_total` が黙って 0 になり、`all_total` が過小になる。
+- 却下の理由: 実際の配置は `<id>/subagents/agent-*.jsonl` で確認済み（項目の判断が「実装の最初に確かめる」と決めている）。ログを `<id>/` なしでコピーした場合の 0 は、文書に注意書きを足して対応した。警告の出力や入れ子の探索は項目の範囲外。
+
+## B-062 / code-review / `shared/bench/tokens.py:90`
+
+- 指摘: `path.with_suffix("")` は `.jsonl` 以外の名前（`session.copy` など）で別のセッションのディレクトリを指しうる。
+- 却下の理由: 入力は Claude Code が書いた `<id>.jsonl` に限る道具で、`.jsonl` 以外を渡す使い方は想定しない。具体的な失敗は人為的な入力に限られる。
+
+## B-062 / code-review / `tests/test_bench_tokens.py:101`
+
+- 指摘: サブエージェントのログが親のメッセージを再掲していると、ファイルごとの数え方で二重に数える可能性がある。
+- 却下の理由: サブエージェント付きの 23 セッションを実際に調べたところ、ファイルをまたいだ重複 ID は 0 件だった。再現しない。
+
+## B-062 / simplify / `shared/bench/tokens.py:58`
+
+- 指摘: `sub_*` の 4 フィールドを `Stats.sub: Stats` と `__add__` にまとめれば、重複が減り内訳（`sub_input` など）も出せる。
+- 却下の理由: 好みの範囲で、得られるのは約 10 行の重複の削減だけ。ネスト構造は `row()` と JSON の形を複雑にする。内訳の表示は項目の判断（別の列と合計）の範囲外で、必要になった時点で足せる。
+
+## B-062 / simplify / `shared/bench/tokens.py:201`
+
+- 指摘: JSON を `dict(zip(COLUMNS, stats.row()))` から作れば、`total` と `all_total` を手で足さずに済む。
+- 却下の理由: 出力の形（`asdict` の項目に `total` を足す）を変える提案で、項目の範囲外。既存の書き方と揃えており、手書きは 1 行増えただけ。
+
+## B-062 / simplify / `shared/bench/tokens.py:88`
+
+- 指摘: `subagent_logs()` は 1 か所からしか呼ばれないので `collect()` にインライン化できる。
+- 却下の理由: 名前と docstring でレイアウトを説明する単位として残す価値がある。好みの範囲。
+
+## B-062 / simplify / `docs/bench-token-comparison.md:42`
+
+- 指摘: 追加した段落がモジュールの docstring と一部重複している。
+- 却下の理由: docstring は CLI だけ使う人向け、文書は集計手順を読む人向けで、読む場所が違う。好みの範囲。
