@@ -1066,24 +1066,43 @@ class Definition:
     args: dict[str, dict] = field(
         default_factory=dict
     )  # declared start arguments: name -> {"required", "default"}
+    text_files: frozenset[Path] = frozenset()  # the sources that are { file } texts
 
 
-def read_text_value(value: Text, base_dir: Path) -> str:
-    """Return the text of a string or { file = ... } value (one trailing newline removed)."""
+def read_text_value(
+    value: Text, base_dir: Path, sources: dict[Path, bytes] | None = None
+) -> str:
+    """Return the text of a string or { file = ... } value (one trailing newline removed).
+
+    A file already in `sources` is taken from there (the bytes the definition was hashed from).
+    """
     if isinstance(value, str):
         return value
     path = base_dir / value["file"]
+    if sources is not None and path in sources:
+        data = sources[path]
+    else:
+        data = read_source(path)
     try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as e:
-        raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
+        text = data.decode("utf-8")
     except UnicodeDecodeError as e:
         raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
     return text.removesuffix("\n")
 
 
+def _text_files(raw: dict, merged: dict) -> list[str]:
+    """Every { file } path of the merged definition (relative to the root directory)."""
+    items: list[Text] = list(raw.get("notes", {}).get("always", []))
+    items += merged["notes"]["common"].values()
+    for st in merged["states"].values():
+        items.append(st["prompt"])
+        items += st.get("_always", [])
+        items += (c["when"] for c in st.get("choices", []))
+    return sorted({v["file"] for v in items if isinstance(v, dict)})
+
+
 def _definition_hash(path: Path, sources: dict[Path, bytes]) -> str:
-    """sha256 of the root file; with includes, of the root and every part (names included)."""
+    """sha256 of the root file; with more files (parts, { file } texts), of all (names included)."""
     h = hashlib.sha256(sources[path])
     for part in sorted(p for p in sources if p != path):
         h.update(
@@ -1112,6 +1131,14 @@ def load_definition(path: Path) -> Definition:
     if errors or merged is None:
         lines = "\n".join(format_issue(i) for i in errors)
         raise FlowError(f"{path}: definition has errors\n{lines}")
+    # The files behind { file } texts are part of the definition: hashed, checked against the
+    # ref, and rendered from the bytes read here.
+    texts = set()
+    for rel in _text_files(raw, merged):
+        p = path.parent / rel
+        if p not in sources:
+            sources[p] = read_source(p)
+        texts.add(p)
     states = {}
     for sid, st in merged["states"].items():
         states[sid] = State(
@@ -1143,6 +1170,7 @@ def load_definition(path: Path) -> Definition:
         sources=sources,
         hash=_definition_hash(path, sources),
         args={n: dict(spec) for n, spec in raw.get("args", {}).items()},
+        text_files=frozenset(texts),
     )
 
 
@@ -1239,7 +1267,9 @@ def render_step(
     st = defn.states[state_id]
 
     def text(value: Text) -> str:
-        return substitute_args(read_text_value(value, defn.base_dir), args)
+        return substitute_args(
+            read_text_value(value, defn.base_dir, defn.sources), args
+        )
 
     sections = [f"[{st.id}] (run: {run_id})\n{text(st.prompt)}"]
 
@@ -1516,7 +1546,7 @@ def _toplevel(directory: Path) -> str | None:
 def _ref_check(defn: Definition, ref: str) -> str | None:
     """Return why the commands must not run, or None if every file equals its copy at `ref`.
 
-    Every file the definition was built from (the root and all parts) is compared with the
+    Every file the definition was built from (the root, all parts and all { file } texts) is compared with the
     committed bytes, so what runs is what git holds. A part reached through a symlink is
     looked up at its real path, which must be in the same repository as the root definition,
     and each symlink on the way must be the committed one.
@@ -1528,7 +1558,7 @@ def _ref_check(defn: Definition, ref: str) -> str | None:
             if source != defn.path:
                 if _toplevel(real.parent) != root_top:
                     rel = source.relative_to(defn.base_dir).as_posix()
-                    return f"the included file '{rel}' is not in the definition's repository"
+                    return f"the file '{rel}' is not in the definition's repository"
                 reason = _check_links(source, defn.base_dir, ref, root_top)
                 if reason:
                     return reason
@@ -1539,9 +1569,7 @@ def _ref_check(defn: Definition, ref: str) -> str | None:
                 name = (
                     "the definition"
                     if source == defn.path
-                    else (
-                        f"the included file '{source.relative_to(defn.base_dir).as_posix()}'"
-                    )
+                    else f"the file '{source.relative_to(defn.base_dir).as_posix()}'"
                 )
                 return f"{name} differs from ref '{ref}'"
     except (OSError, subprocess.SubprocessError) as e:
@@ -1554,7 +1582,7 @@ def execute_state(
 ) -> dict | None:
     """Run the command of a state (if it has one) and return its record.
 
-    The command runs only if every file of the definition (the root and its parts) is identical
+    The command runs only if every file of the definition (the root, its parts and its { file } texts) is identical
     to its copy at the run's ref (checked on every call, so editing a file and using --force
     cannot smuggle in commands). The definition was built from the bytes that were compared.
     The guarantee covers the definition files only. The program a command launches (the script
@@ -2111,7 +2139,7 @@ def export_skill(defn_path: Path, lang: str = "auto") -> tuple[str, list[str]]:
     base = defn.base_dir
 
     def text(value: Text) -> str:
-        return read_text_value(value, base)
+        return read_text_value(value, base, defn.sources)
 
     if lang == "auto":
         samples = [text(s.prompt) for s in defn.states.values()]
@@ -2120,7 +2148,7 @@ def export_skill(defn_path: Path, lang: str = "auto") -> tuple[str, list[str]]:
     w = EXPORT_WORDS[lang]
 
     dropped: list[str] = []
-    if len(defn.sources) > 1:
+    if len(defn.sources.keys() - defn.text_files) > 1:
         dropped.append(
             "include: the parts were merged into one text (ids may be prefixed)"
         )
