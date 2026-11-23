@@ -2,6 +2,11 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-035
+
+- 自己レビュー / `tests/test_deskil_dev_plugin.py` `test_triage_rejected_judge_rules`: `"twice" in prompt or "2" in prompt` の条件が緩い。却下: 文言への依存を固めすぎると、プロンプトの言い換えのたびにテストが壊れる。好みの範囲。
+- flow-review・security-review: 指摘なし。
+
 ## B-028
 
 - simplify（altitude）/ `plugins/deskil-dev/skills/decide/flow.toml` の `pick`: バッチで外した blocked 項目を伝えるのに、`--unblocked` なしの `list` との見比べをモデルに任せている。`--blocked-only` などで出すべき。却下: B-028 の判断が「`--unblocked` なしの `list` と見比べて調べる」と決めている。必要になれば別項目にする。
