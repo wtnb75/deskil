@@ -41,13 +41,6 @@
 
 ## todo / ready
 
-### B-052 deskil-dev: decide-part.toml と decide/flow.toml の重複をなくす
-- 状態: todo
-- 優先度: P3
-- 追加: 2026-11-23
-- 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
-- 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
-
 ### B-053 flow: rename が includer の exits を直せない制限を扱う
 - 状態: todo
 - 優先度: P3
@@ -617,3 +610,11 @@
 - 概要: 上限の扱い（バッチの件数に上限を設ける／`record` を件数で縛らない）と、超過時の専用の終了ステートを決める。`impl/decide-part.toml` にも同じ修正が要る（B-052 と関係する）。
 - 判断: 一括決定の件数は制限せず、`record` の `max_visits` を実用上届かない値（200）に上げ、超過時は専用の終了ステート `report_record_limit`（「記録の上限に達した。残りは新しい decide で続ける」）へ移す。`decide/flow.toml` と `impl/decide-part.toml` の両方を直す。暴走を止める上限は残しつつ、件数の仕様は変えないため。
 - 完了: 2026-11-23
+
+### B-052 deskil-dev: decide-part.toml と decide/flow.toml の重複をなくす
+- 状態: dropped
+- 優先度: P3
+- 追加: 2026-11-23
+- 背景: 全体レビュー。`impl/decide-part.toml` は `decide/flow.toml` と完全に同じ内容のコピーで、一致を強制するテストがない。片方だけ直すと内容がずれる。
+- 概要: 案: 一致を確かめるテストを足す／symlink で 1 つにする。include の部品は `{ file }` と違い symlink を許す（B-038）ので、symlink が使えるかを確かめる。
+- 判断: 解決済みのため取り下げる。`impl/decide-part.toml` は B-032 の時点で `../decide/flow.toml` への symlink（mode 120000）になっており、実体は 1 つである。バックログの背景（コピー）は事実と違っていた。
