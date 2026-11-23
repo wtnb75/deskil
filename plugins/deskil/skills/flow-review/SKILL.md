@@ -1,7 +1,7 @@
 ---
 name: flow-review
 description: Review a flow definition, or debug a flow run that went off course, using lint, dry-run and status
-allowed-tools: Bash(deskil flow:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.
@@ -41,4 +41,4 @@ as written.
    with `flow-author`; for the run, continue with the right `next` command.
 4. If the definition changed while the run was open, `next` refuses to
    continue. Use `--force` only if the change is intended and the current state still exists.
-   `flow runs` marks such runs with `[definition changed]`; remove the ones you no longer need with `flow gc`.
+   `deskil flow runs` marks such runs with `[definition changed]`; remove the ones you no longer need with `deskil flow gc`.

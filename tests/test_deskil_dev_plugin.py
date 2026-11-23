@@ -13,7 +13,8 @@ DEV = ROOT / "plugins" / "deskil-dev"
 SKILLS = ["add", "prio", "decide", "impl", "triage-rejected"]
 PRESENT = [s for s in SKILLS if (DEV / "skills" / s).is_dir()]
 ALLOWED_TOOLS = (
-    "Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
+    "Bash(deskil --version), Bash(deskil flow:*), "
+    "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
 )
 ENGINE = ROOT / "shared" / "flow" / "flow.py"
 INSTALL = "uv tool install git+https://github.com/wtnb75/deskil"

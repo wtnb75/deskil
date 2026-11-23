@@ -54,7 +54,7 @@ def test_sample_definition_lints_clean(tmp_path):
 
 def test_skill_runs_the_deskil_command():
     text = SKILL.read_text(encoding="utf-8")
-    assert "allowed-tools: Bash(deskil flow:*)" in text
+    assert "allowed-tools: Bash(deskil --version), Bash(deskil flow:*)" in text
     assert "deskil flow start" in text and "Flow complete." in text
 
 

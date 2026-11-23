@@ -1,7 +1,7 @@
 ---
 name: flow-convert
 description: Convert an existing skill into a skill driven by a deskil flow definition, with a correspondence table for the user to confirm
-allowed-tools: Bash(deskil flow:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

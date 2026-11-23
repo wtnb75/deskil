@@ -43,7 +43,7 @@ def test_skill_frontmatter(skill):
     fm = frontmatter(CORE / "skills" / skill / "SKILL.md")
     assert fm["name"] == skill
     assert fm["description"]
-    assert fm["allowed-tools"] == "Bash(deskil flow:*)"
+    assert fm["allowed-tools"] == "Bash(deskil --version), Bash(deskil flow:*)"
 
 
 @pytest.mark.parametrize("skill", SKILLS)
@@ -75,7 +75,8 @@ def test_author_skill_covers_the_authoring_commands():
 def test_author_wire_up_recommends_the_command_not_a_symlink():
     text = (CORE / "skills" / "flow-author" / "SKILL.md").read_text(encoding="utf-8")
     wire = text.split("## 5.", 1)[1]
-    assert "Bash(deskil flow:*)" in wire and "deskil --version" in wire
+    assert "Bash(deskil flow:*)" in wire and "Bash(deskil --version)" in wire
+    assert "deskil --version`" in wire
     assert "symlink" not in wire
 
 
@@ -101,7 +102,8 @@ def test_convert_skill_covers_split_rule_and_verification():
 def test_convert_wire_up_recommends_the_command_not_a_symlink():
     text = (CORE / "skills" / "flow-convert" / "flow.toml").read_text(encoding="utf-8")
     wire = text.split("[states.rewrite]", 1)[1].split("[states.report]", 1)[0]
-    assert "Bash(deskil flow:*)" in wire and "deskil --version" in wire
+    assert "Bash(deskil flow:*)" in wire and "Bash(deskil --version)" in wire
+    assert "deskil --version`" in wire
     assert "symlink" not in wire
 
 

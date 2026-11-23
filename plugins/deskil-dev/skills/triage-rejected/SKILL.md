@@ -1,7 +1,7 @@
 ---
 name: triage-rejected
 description: Review the rejected review findings in docs/REVIEW-REJECTED.md, add the valid ones to the backlog and remove the processed entries
-allowed-tools: Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

@@ -1,7 +1,7 @@
 ---
 name: add
 description: Add an idea or a deferred item to docs/BACKLOG.md as a todo item, with a correct id and format
-allowed-tools: Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

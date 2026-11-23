@@ -1,7 +1,7 @@
 ---
 name: prio
 description: Review the todo and ready items in docs/BACKLOG.md and set their priorities (P1 to P3) after the user approves
-allowed-tools: Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

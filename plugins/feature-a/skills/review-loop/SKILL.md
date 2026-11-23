@@ -1,7 +1,7 @@
 ---
 name: review-loop
 description: Run the test suite and fix failures, with at most two fix attempts (sample flow skill)
-allowed-tools: Bash(deskil flow:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

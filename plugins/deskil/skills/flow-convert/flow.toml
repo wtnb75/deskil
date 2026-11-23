@@ -78,7 +78,7 @@ goto = "report_failed"
 [states.rewrite]
 prompt = """Reduce `SKILL.md` to the context and domain knowledge plus a fixed loop:
 run `deskil flow start <flow.toml>`, follow the output, run the `next` command it prints, and repeat until it prints `Flow complete.`
-Put this sentence first in the body: "Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop." Then add `allowed-tools: Bash(deskil flow:*)`."""
+Put this sentence first in the body: "Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop." Then add `allowed-tools: Bash(deskil --version), Bash(deskil flow:*)`."""
 goto = "report"
 
 [states.report]

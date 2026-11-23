@@ -1,7 +1,7 @@
 ---
 name: decide
 description: Pick one todo item, or a batch such as "top 10" or "P2 10", in docs/BACKLOG.md, compare approaches with the user, record the decisions and make the items ready (or drop them)
-allowed-tools: Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
+allowed-tools: Bash(deskil --version), Bash(deskil flow:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)
 ---
 
 Before anything else, run `deskil --version`. If the command is not found, tell the user to run `uv tool install git+https://github.com/wtnb75/deskil` and stop.

@@ -29,7 +29,7 @@ goto = "write_skill"
 prompt = """Create or update the skill's `SKILL.md`:
 1. Keep its frontmatter `name` and `description`, and its context and domain knowledge (the part `flow-convert` left in `SKILL.md`).
 2. Replace the "run `deskil flow start`" loop with the exported text, and remove the `deskil --version` check sentence.
-3. Remove `Bash(deskil flow:*)` from `allowed-tools`. Keep the tools the steps themselves need (for example the commands of a `run`).
+3. Remove `Bash(deskil --version)` and `Bash(deskil flow:*)` from `allowed-tools`. Keep the tools the steps themselves need (for example the commands of a `run`).
 4. Remove the `flow.toml` only if the user wants to stop using deskil for this skill; otherwise keep it so the skill can be converted again."""
 goto = "report_lost"
 
