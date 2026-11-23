@@ -553,11 +553,11 @@ def _sccs(graph: dict[str, list[str]]) -> list[list[str]]:
     """Strongly connected components (iterative Kosaraju)."""
     order: list[str] = []
     seen: set[str] = set()
-    for root in graph:
+    for root, root_targets in graph.items():
         if root in seen:
             continue
         seen.add(root)
-        stack = [(root, iter(graph[root]))]
+        stack = [(root, iter(root_targets))]
         while stack:
             node, it = stack[-1]
             for nxt in it:
@@ -663,7 +663,7 @@ def lint_graph(raw: dict) -> list[Issue]:
                 Issue(
                     "error",
                     "on-exceed-cycle",
-                    f"states.{sorted(comp)[0]}",
+                    f"states.{min(comp)}",
                     f"on_exceed chain loops forever once the limits are reached ({members})",
                 )
             )
@@ -677,7 +677,7 @@ def lint_graph(raw: dict) -> list[Issue]:
                 Issue(
                     "warning",
                     "unbounded-loop",
-                    f"states.{sorted(comp)[0]}",
+                    f"states.{min(comp)}",
                     f"loop without max_visits ({members}); exit depends only on the LLM's choice",
                 )
             )
@@ -1079,7 +1079,7 @@ def read_text_value(value: Text, base_dir: Path) -> str:
         raise FlowError(f"{path}: cannot read file ({e.strerror})") from e
     except UnicodeDecodeError as e:
         raise FlowError(f"{path}: not valid UTF-8 ({e.reason})") from e
-    return text[:-1] if text.endswith("\n") else text
+    return text.removesuffix("\n")
 
 
 def _definition_hash(path: Path, sources: dict[Path, bytes]) -> str:

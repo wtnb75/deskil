@@ -90,14 +90,6 @@
 - 背景: B-019 で run の一覧と削除はできたが、途中で定義が書き換わった run（`rename` で状態名を変えたものなど）は、定義のハッシュが変わるため `next --force` でしか続けられず、`current` や `visits` の状態名も古いままになる。
 - 概要: `rename` のあとに、その定義を使っている実行中の run の `current`・`visits`・`history` の状態名を追従させるか、`flow runs` で「定義が変わった run」を示すだけにするかを決める。
 
-### B-045 ruff を 0.17 系に上げる
-- 状態: ready
-- 優先度: P2
-- 追加: 2026-11-23
-- 背景: CI は最新の ruff を取得するが、0.17 系はデフォルトのルールが増えていて、`flow.py` やテストに 29 件の指摘が出る（FURB192・PLW1510・PLC0206・FURB188・RUF100・FURB167・RUF059）。B-023 では `Taskfile.yml` の `lint` を `ruff==0.15.9` に固定して回避した。
-- 概要: 指摘を直して固定を外すか、固定を維持して定期的に上げるか、不要なルールを `ruff.toml` で外すかを決める。固定を外す場合は、`subprocess.run` の `check` 引数など、動作に関わる指摘（PLW1510）を個別に確認する。
-- 判断: 29 件の指摘を直して固定を外す（2026-11-23）。`Taskfile.yml` の `ruff==0.15.9` を外して CI を最新に追従させる。PLW1510（`subprocess.run` の `check`）は動作に関わるので 1 件ずつ確認する。
-
 ## done / dropped
 
 ### B-009 feature 追加: バックログ管理スキル
@@ -448,4 +440,13 @@
 - 背景: `deskil` プラグインには `flow.py` が同梱されているが、`flow-author`・`flow-review`・`flow-convert`・`flow-export`（B-012）は、手順を `SKILL.md` に直接書いた通常のスキルで、`flow.toml` を使っていない。`deskil-dev` などは flow 定義で動いており、deskil を勧めるプラグイン自身が使っていない。
 - 概要: 手順と分岐がはっきりしている `flow-convert` と `flow-export` から、`flow-convert` のスキルで flow 定義に変換する。変換の対象を 4 つすべてにするか、手順が一直線に近い `flow-author` / `flow-review` は通常のスキルのままにするかは未決。変換後は、手順の対応表をユーザーが確認し、`lint` と `dry-run` を通す。
 - 判断: `flow-convert` と `flow-export` の 2 つを flow 定義に変換する（2026-11-23）。`flow-convert` のスキルを使い、対応表をユーザーが確認し、`lint` と `dry-run` を通す。`flow-author` / `flow-review` は一直線に近く、flow 化でトークンが増えるおそれがあるため通常のスキルのままにする（効果は B-014 で測れる）。
+- 完了: 2026-11-23
+
+### B-045 ruff を 0.17 系に上げる
+- 状態: done
+- 優先度: P2
+- 追加: 2026-11-23
+- 背景: CI は最新の ruff を取得するが、0.17 系はデフォルトのルールが増えていて、`flow.py` やテストに 29 件の指摘が出る（FURB192・PLW1510・PLC0206・FURB188・RUF100・FURB167・RUF059）。B-023 では `Taskfile.yml` の `lint` を `ruff==0.15.9` に固定して回避した。
+- 概要: 指摘を直して固定を外すか、固定を維持して定期的に上げるか、不要なルールを `ruff.toml` で外すかを決める。固定を外す場合は、`subprocess.run` の `check` 引数など、動作に関わる指摘（PLW1510）を個別に確認する。
+- 判断: 29 件の指摘を直して固定を外す（2026-11-23）。`Taskfile.yml` の `ruff==0.15.9` を外して CI を最新に追従させる。PLW1510（`subprocess.run` の `check`）は動作に関わるので 1 件ずつ確認する。
 - 完了: 2026-11-23

@@ -25,6 +25,7 @@ def run_flow(args, cwd):
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
 
 

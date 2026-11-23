@@ -98,7 +98,7 @@ def p(write_def, tmp_path):
 
 def test_each_state_is_a_section_in_definition_order(flow, p):
     md, _ = flow.export_skill(p, "en")
-    assert re.findall(r"^## (\w+)$", md, re.M) == ["a", "w", "done"]
+    assert re.findall(r"^## (\w+)$", md, re.MULTILINE) == ["a", "w", "done"]
     assert md.startswith("Start at `a`.")
 
 
@@ -194,6 +194,7 @@ def test_cli_prints_text_to_stdout_and_dropped_items_to_stderr(p):
         [sys.executable, str(FLOW_PY), "export", str(p), "--lang", "en"],
         capture_output=True,
         text=True,
+        check=False,
     )
     assert r.returncode == 0
     assert r.stdout.startswith("Start at `a`.")
@@ -207,7 +208,9 @@ def test_cli_prints_text_to_stdout_and_dropped_items_to_stderr(p):
 def edges_from_graph(mermaid: str) -> set[tuple[str, str, str]]:
     out = set()
     for m in re.finditer(
-        r"^  n_(\w+) (?:-->\|(\w+)\||-\.->\|max (\d+)\||-->) n_(\w+)$", mermaid, re.M
+        r"^  n_(\w+) (?:-->\|(\w+)\||-\.->\|max (\d+)\||-->) n_(\w+)$",
+        mermaid,
+        re.MULTILINE,
     ):
         src, label, limit, dst = m.groups()
         out.add((src, label or (f"max {limit}" if limit else ""), dst))

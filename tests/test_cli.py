@@ -149,6 +149,7 @@ def test_subprocess_smoke(flow, env, write_def, tmp_path):
         [sys.executable, flow.__file__, "lint", str(env[0])],
         capture_output=True,
         text=True,
+        check=False,
     )
     assert ok.returncode == 0
 
@@ -159,6 +160,7 @@ def test_subprocess_smoke(flow, env, write_def, tmp_path):
         [sys.executable, flow.__file__, "lint", str(bad)],
         capture_output=True,
         text=True,
+        check=False,
     )
     assert res.returncode == 1
     assert "error[unknown-key]" in res.stdout

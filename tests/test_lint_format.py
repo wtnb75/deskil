@@ -96,7 +96,7 @@ def test_github_escapes_properties_and_data(flow):
 def test_unreadable_toml_is_reported_in_the_format(
     flow, write_def, tmp_path, capsys, fmt
 ):
-    path, code, cap = lint(flow, write_def, tmp_path, "not = [valid", fmt, capsys)
+    _, code, cap = lint(flow, write_def, tmp_path, "not = [valid", fmt, capsys)
     assert code == 1 and cap.err == ""
     if fmt == "json":
         issue = json.loads(cap.out)["issues"][0]

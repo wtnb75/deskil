@@ -8,8 +8,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared" / "flow"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared" / "backlog"))
 
-import backlog as _backlog  # noqa: E402
-import flow as _flow  # noqa: E402
+import backlog as _backlog
+import flow as _flow
 
 
 @pytest.fixture
