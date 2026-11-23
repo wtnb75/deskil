@@ -72,7 +72,9 @@ def test_plugin_json_names_deskil_dev():
     data = json.loads(
         (DEV / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
     )
-    assert data["name"] == "deskil-dev" and data["version"] and data["description"]
+    assert data["name"] == "deskil-dev" and data["license"] and data["description"]
+    # version is omitted on purpose: the commit SHA is used as the version
+    assert "version" not in data
 
 
 @pytest.mark.parametrize(
