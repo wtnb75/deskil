@@ -1,0 +1,77 @@
+schema = 1
+start = "read"
+
+[notes]
+always = [
+  "The record is docs/REVIEW-REJECTED.md; the backlog is docs/BACKLOG.md in the current project.",
+  "Run this only when the user asks for it. There is no threshold for the number or age of entries.",
+  "Do not commit anything: leave the changes in the working tree for the user.",
+]
+
+[states.read]
+prompt = """Read docs/REVIEW-REJECTED.md. If the file does not exist or has no entries, there is nothing to triage.
+Also run `backlog.py list --all` so that you can tell which findings the backlog already covers."""
+
+[[states.read.choices]]
+label = "entries"
+when = "The file has at least one entry"
+goto = "judge"
+
+[[states.read.choices]]
+label = "empty"
+when = "The file does not exist or has no entries"
+goto = "report_empty"
+
+[states.judge]
+prompt = """Judge each entry again, now that the item that produced it is done. Mark it as one of:
+- valid: a real problem, and worth a backlog item of its own.
+- covered: an existing backlog item already covers it (note the ID).
+- invalid: still a false positive, out of scope or a matter of taste.
+Count entries that describe the same finding: if a finding was rejected twice or more, it is a candidate for a higher
+priority, and the count goes into the 背景 of its item.
+Show the user a table (entry, verdict, reason, count) and wait for the user to confirm or correct it. Do not edit any file yet."""
+goto = "apply"
+
+[states.apply]
+prompt = """For each valid entry, run the `deskil-dev:add` skill to add it to the backlog. Put the count in 背景 when the
+finding was rejected twice or more, and say so when you suggest a priority above P2 (do not set the priority yourself:
+use `deskil-dev:prio` for that). For a covered entry, add the new information to the existing item instead.
+Then delete every processed entry (valid, covered and invalid) from docs/REVIEW-REJECTED.md with Edit. The history stays
+in git, so no mark is needed. If the file has no entries left, keep the heading and the note on the format."""
+goto = "lint"
+
+[states.lint]
+run = ["uv", "run", "${DEF_DIR}/../../scripts/backlog.py", "lint"]
+prompt = """The command below is `backlog.py lint`: exit code 0 and no output mean the backlog is clean.
+If the step says the command was not executed, run `backlog.py lint` yourself."""
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint exited 0 and printed nothing"
+goto = "report"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint printed one or more problems or exited non-zero"
+goto = "fix"
+
+[states.fix]
+prompt = """Read the problems that `backlog.py lint` printed (file:line: message) and fix their causes with Edit.
+Do not change anything else."""
+goto = "lint"
+max_visits = 2
+on_exceed = "report_fail"
+
+[states.report]
+prompt = """Report how many entries were processed, which backlog items were added or updated (ID: title), and that the
+backlog passes lint. Tell the user that the changes are not committed."""
+end = true
+
+[states.report_fail]
+prompt = """Tell the user that the backlog still fails lint after two fix attempts, and list the remaining problems.
+Say which entries were already removed from docs/REVIEW-REJECTED.md."""
+end = true
+
+[states.report_empty]
+prompt = "Tell the user that docs/REVIEW-REJECTED.md has no entries, so nothing was changed."
+end = true

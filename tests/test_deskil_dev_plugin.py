@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 DEV = ROOT / "plugins" / "deskil-dev"
-SKILLS = ["add", "prio", "decide", "impl"]
+SKILLS = ["add", "prio", "decide", "impl", "triage-rejected"]
 PRESENT = [s for s in SKILLS if (DEV / "skills" / s).is_dir()]
 ALLOWED_TOOLS = "Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*), Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py:*)"
 
@@ -402,6 +402,7 @@ RUN_STATES = [
     ("decide", "lint", ["lint"]),
     ("prio", "lint", ["lint"]),
     ("prio", "survey", ["list"]),
+    ("triage-rejected", "lint", ["lint"]),
 ]
 
 
@@ -452,3 +453,32 @@ def test_prompt_points_at_the_command_below(skill, state, args):
     prompt = flow_states(skill)[state]["prompt"]
     assert "command above" not in prompt
     assert "command below" in prompt
+
+
+# --- triage-rejected ---------------------------------------------------------
+
+
+def test_triage_rejected_empty_file_ends_without_changes(tmp_path):
+    out = dry_run("triage-rejected", ["empty"], tmp_path)
+    assert visited(out) == ["read", "report_empty"]
+
+
+def test_triage_rejected_happy_path(tmp_path):
+    out = dry_run("triage-rejected", ["entries", "ok"], tmp_path)
+    assert visited(out) == ["read", "judge", "apply", "lint", "report"]
+
+
+def test_triage_rejected_lint_failures_end_in_report_fail(tmp_path):
+    out = dry_run(
+        "triage-rejected", ["entries", "errors", "errors", "errors"], tmp_path
+    )
+    assert visited(out)[-1] == "report_fail"
+
+
+def test_triage_rejected_judge_rules():
+    states = flow_states("triage-rejected")
+    prompt = states["judge"]["prompt"]
+    assert "deskil-dev:add" in states["apply"]["prompt"]
+    assert "twice" in prompt or "2" in prompt  # repeated findings raise priority
+    assert "docs/REVIEW-REJECTED.md" in states["apply"]["prompt"]
+    assert "history" in states["apply"]["prompt"].lower()  # deleted entries stay in git
