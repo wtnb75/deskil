@@ -154,7 +154,10 @@ def _check_text(value: object, where: str, base_dir: Path, issues: list[Issue]) 
     base = base_dir.resolve()
     try:
         target = (base / rel).resolve()
-        outside = rel.is_absolute() or not target.is_relative_to(base)
+        # `..` is refused (like in cwd): its meaning depends on the links on the way.
+        outside = (
+            rel.is_absolute() or ".." in rel.parts or not target.is_relative_to(base)
+        )
         is_file = not outside and target.is_file()
     except ValueError:  # e.g. an embedded NUL character
         _err(issues, "file-missing", where, f"invalid file path: {value['file']!r}")
@@ -697,7 +700,8 @@ def _rewrite_text(value: Text, reldir: str) -> Text:
     """Make a { file = ... } path relative to the root definition's directory."""
     if reldir == "." or isinstance(value, str):
         return value
-    return {"file": posixpath.normpath(posixpath.join(reldir, value["file"]))}
+    # Lint refuses `..` in a file path, so joining is safe (no lexical vs. link-aware mismatch).
+    return {"file": posixpath.join(reldir, value["file"])}
 
 
 def _localize(st: dict, reldir: str, prefix: str) -> dict:
@@ -1447,29 +1451,56 @@ def _git_fail(proc: subprocess.CompletedProcess) -> str:
     return detail[-1] if detail else "git failed"
 
 
-def _check_links(source: Path, base: Path, ref: str) -> str | None:
+def _check_links(source: Path, base: Path, ref: str, top: str | None) -> str | None:
     """Return why a symlink on the way from `base` to `source` is not the committed one.
 
-    Each link component must be a symlink at `ref` with the same target as in the working
-    tree; otherwise the link could be re-pointed at another committed file to pass the
-    content comparison.
+    The path is walked one component at a time, and the targets of the links met are walked
+    too. Each link inside the repository (`top` is its root) must be a symlink at `ref` with
+    the same target as in the working tree; otherwise it could be re-pointed at another
+    committed file to pass the content comparison. Links outside the repository are only
+    followed: `_ref_check` already requires the real file to be in the repository.
     """
+    top_real = Path(os.path.realpath(top)) if top else None
+    pending = list(reversed(source.relative_to(base).parts))
     current = base
-    for part in source.relative_to(base).parts:
+    hops = 0
+    while pending:
+        part = pending.pop()
+        if part == "..":
+            current = current.parent
+            continue
         current = current / part
         if not current.is_symlink():
             continue
+        hops += 1
+        if hops > 40:
+            return "too many symbolic links"
+        target = os.readlink(current)
         parent = current.parent.resolve()
-        try:
-            tree = _git(parent, "ls-tree", ref, "--", current.name)
-            blob = _git(parent, "show", f"{ref}:./{current.name}")
-        except (OSError, subprocess.SubprocessError) as e:
-            return f"cannot run git: {e}"
-        mode = tree.stdout.decode("utf-8", errors="replace").split(" ", 1)[0]
-        if tree.returncode != 0 or blob.returncode != 0 or mode != "120000":
-            return f"the link '{current.relative_to(base).as_posix()}' is not a symlink at ref '{ref}'"
-        if blob.stdout != os.readlink(current).encode():
-            return f"the link '{current.relative_to(base).as_posix()}' differs from ref '{ref}'"
+        if top_real is not None and parent.is_relative_to(top_real):
+            try:
+                tree = _git(parent, "ls-tree", ref, "--", current.name)
+                blob = _git(parent, "show", f"{ref}:./{current.name}")
+            except (OSError, subprocess.SubprocessError) as e:
+                return f"cannot run git: {e}"
+            mode = tree.stdout.decode("utf-8", errors="replace").split(" ", 1)[0]
+            shown = (
+                current.relative_to(base).as_posix()
+                if current.is_relative_to(base)
+                else str(current)
+            )
+            if tree.returncode != 0 or blob.returncode != 0 or mode != "120000":
+                return f"the link '{shown}' is not a symlink at ref '{ref}'"
+            if blob.stdout != target.encode():
+                return f"the link '{shown}' differs from ref '{ref}'"
+        # Follow the link: its target is walked from the link's directory (or from the root).
+        link_parts = Path(target).parts
+        if os.path.isabs(target):
+            current = Path(link_parts[0])
+            link_parts = link_parts[1:]
+        else:
+            current = current.parent
+        pending.extend(reversed(link_parts))
     return None
 
 
@@ -1498,7 +1529,7 @@ def _ref_check(defn: Definition, ref: str) -> str | None:
                 if _toplevel(real.parent) != root_top:
                     rel = source.relative_to(defn.base_dir).as_posix()
                     return f"the included file '{rel}' is not in the definition's repository"
-                reason = _check_links(source, defn.base_dir, ref)
+                reason = _check_links(source, defn.base_dir, ref, root_top)
                 if reason:
                     return reason
             proc = _git(real.parent, "show", f"{ref}:./{real.name}")

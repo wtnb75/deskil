@@ -108,3 +108,17 @@
 - code-review / 部品の文面にある `{{arg.x}}` は、lint が未宣言を検査しない（実行時エラー）。却下: 部品は `[args]` を持てず、ルートの引数を参照する前提で、部品単体の lint では宣言の有無を判断できない。
 - simplify: 指摘なし。
 - security-review: 指摘なし（`--arg` の値は手順の文面にだけ入り、`run` の argv やファイルパスには展開しない）。
+
+## B-038
+
+- code-review / `shared/flow/flow.py` `_expand_include`・`_localize`: `include` のパスと `cwd` は今も `posixpath.normpath` で字句的に正規化している。`lnk/../x.toml` のような include は、リンクを通した意味とずれる。却下: B-038 の判断は `{ file }` の食い違いまで。`cwd` は lint が `..` を拒否済みで食い違わない。`include` は `..` を含むパスの検査を別項目にする。
+- code-review・altitude / `_check_links`: リポジトリの外にある symlink は追跡するだけで、コミット済みのリンクと比べない。却下: 実体が同じリポジトリ内にあることと、内容が `ref` と一致することは `_ref_check` が検査する。外のリンクを書き換えられる前提が要り、すり替えても同じリポジトリのコミット済みの別ファイルまでで、B-038 が許容した範囲と同じ。コメントで仕様として明記した。
+- code-review / `_check_links` の 40 回の上限は、辿ったリンクの総数を数えるので、深さではない。却下: 正当な定義が 40 本を超えるリンクを通ることはなく、OS の `ELOOP` の上限（Linux 40、macOS 32）と揃えた値。
+- altitude / `_check_links` が `realpath` の再実装になっている。`git archive` で `ref` を展開して実体のパスを比べる、またはリンクを辿る部分だけを generator に切り出すべき。却下: 判断（`os.readlink` で一段ずつ検査）の範囲で、`ref` の展開は実行のたびに重くなる。切り出しは動作が変わらず、好みの範囲。
+- altitude / lint・include・実行時で使う「部品のパスを解決する」関数を 1 つにまとめる。却下: 範囲外の大きな改修。`{ file }` の食い違いは `..` の拒否で解消した。
+- simplify（efficiency）/ 1 つのリンクの検証（`git ls-tree` と `git show`）を、同じリンクを通る include ごとに繰り返す。キャッシュや `git ls-tree -r` にまとめるべき。却下: 呼び出しは `_ref_check` の既存の形で、include の数も少なく、差は出ない。
+- simplify（simplification）/ `_check_links` の中の `git` の比較を別関数に切り出す、`shown` を `os.path.relpath` にする、`hops` を `for` にする。却下: 動作が変わらず、好みの範囲。
+- simplify（reuse）/ 既存の 3 つのテストが書いている `git init`・`config`・`commit` を `_commit_all` に置き換える。却下: 既存のテストの書き換えで範囲外。
+- simplify（simplification）/ 2 つの新しいテストの TOML 文字列と includer の定義の共通化。却下: 既存のテストも同じ書き方で、好みの範囲。
+- security-review: 指摘なし。
+- 修正: code-review の「存在しない `nodir/../b.md` が lint を通り、実行時に読めない」は採用し、`{ file }` の `..` を lint で拒否する形で修正した。simplify の `_toplevel` の呼び出しを `_ref_check` の `root_top` の再利用に替える、`resolve()` を 1 回にする、不要な `("", ".")` の分岐の削除、外のリンクの扱いのコメントも採用し、修正した。

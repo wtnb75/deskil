@@ -493,3 +493,58 @@ def test_repointed_symlink_is_display_only(flow, tmp_path):
     )  # committed content, but not the committed link
     out = flow.start_run(root / "flow.toml", tmp_path / "runs")
     assert "Command not executed" in out and "Exit code" not in out
+
+
+def _commit_all(root: Path) -> None:
+    _git(root, "init", "-b", "main")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "t")
+    _git(root, "config", "commit.gpgsign", "false")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "def")
+
+
+def test_repointed_link_inside_a_link_target_is_display_only(flow, tmp_path):
+    """A symlink met while following another link must also be the committed one."""
+    root = tmp_path / "repo"
+    for name, word in (("one", "linked"), ("two", "other")):
+        _write(
+            root / name / "test.toml",
+            f'schema = 1\nstart = "run"\n[states.run]\nprompt = "p"\nrun = ["echo", "{word}"]\n'
+            'goto = "ok"\n[states.ok]\nprompt = "ok"\nend = true\n',
+        )
+    (root / "lib").symlink_to("one")
+    (root / "parts").mkdir()
+    (root / "parts" / "test.toml").symlink_to("../lib/test.toml")
+    _write(
+        root / "flow.toml",
+        'schema = 1\nstart = "t"\n[states.t]\ninclude = "parts/test.toml"\nexits = { ok = "e" }\n'
+        '[states.e]\nprompt = "e"\nend = true\n',
+    )
+    _commit_all(root)
+    out = flow.start_run(root / "flow.toml", tmp_path / "runs")
+    assert "Exit code: 0" in out
+    (root / "lib").unlink()
+    (root / "lib").symlink_to("two")  # committed content, but not the committed link
+    out = flow.start_run(root / "flow.toml", tmp_path / "runs")
+    assert "Command not executed" in out and "Exit code" not in out
+
+
+def test_file_path_with_dotdot_is_refused(flow, tmp_path):
+    """`a/../b` means different files lexically and through the link `a`, so lint refuses it."""
+    root = tmp_path / "proj"
+    _write(root / "parts" / "sub" / "dir" / ".keep", "")
+    (root / "parts" / "a").symlink_to("sub/dir")
+    _write(root / "parts" / "sub" / "b.md", "linted text")
+    _write(root / "parts" / "b.md", "other text")
+    _write(
+        root / "parts" / "test.toml",
+        'schema = 1\nstart = "run"\n[states.run]\nprompt = { file = "a/../b.md" }\ngoto = "ok"\n'
+        '[states.ok]\nprompt = "ok"\nend = true\n',
+    )
+    p = _write(
+        root / "flow.toml",
+        'schema = 1\nstart = "t"\n[states.t]\ninclude = "parts/test.toml"\nexits = { ok = "e" }\n'
+        '[states.e]\nprompt = "e"\nend = true\n',
+    )
+    assert "file-outside" in codes(flow, p)
