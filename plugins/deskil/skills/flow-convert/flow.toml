@@ -1,0 +1,91 @@
+schema = 1
+start = "read"
+
+[notes]
+always = [
+  "In the steps, `flow.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py <args>`.",
+  "Do not change what a step does when converting; only restructure it. Writing the definition follows the `flow-author` skill.",
+]
+
+[states.read]
+prompt = """Read the whole `SKILL.md` to convert (and any files it references). Sort each part into one of two groups:
+- Moves to `flow.toml`: ordered steps; branches ("if X, do Y"); loops and their limits (retry at most N times); notes that apply to the whole procedure or to some steps.
+- Stays in `SKILL.md`: purpose and when to use the skill; context and domain knowledge; background the steps rely on, glossary, examples.
+Rule of thumb: if the text says what to do next, or when to stop, it belongs in the flow. If it explains what something is or why, it stays in `SKILL.md`.
+A step that needs a lot of explanation keeps a short prompt in the flow, and the explanation stays in `SKILL.md` or moves to a file referenced by `prompt = { file = "..." }`.
+A loop with no stated limit gets a `max_visits` and an `on_exceed` target. Pick a limit that matches the original intent, and remember to tell the user it was added."""
+goto = "write"
+
+[states.write]
+prompt = """Create `flow.toml` next to the skill, following `flow-author`: one state per step, one `[[choices]]` block per outcome of each decision, `end = true` on the final state.
+Do not change what a step does; only restructure it. Then run `flow.py fmt <flow.toml>`."""
+goto = "lint"
+
+[states.lint]
+prompt = "Run `flow.py lint <flow.toml>`. Fix every error and read every warning."
+
+[[states.lint.choices]]
+label = "ok"
+when = "lint reported no errors (every warning was read and judged intended)"
+goto = "dry_run"
+
+[[states.lint.choices]]
+label = "errors"
+when = "lint reported one or more errors"
+goto = "fix"
+
+[states.fix]
+prompt = "Fix the errors lint printed in `flow.toml` (use `flow.py rename` to rename a state, never by hand), then run `flow.py fmt <flow.toml>`."
+goto = "lint"
+max_visits = 3
+on_exceed = "report_failed"
+
+[states.dry_run]
+prompt = """Run `flow.py dry-run <flow.toml>` and read every state as the LLM will see it.
+Then run `flow.py dry-run <flow.toml> --results <labels>` to walk each branch and loop limit of the original skill.
+Do not compare the behavior of the old and new skill automatically. The correspondence table is the check."""
+
+[[states.dry_run.choices]]
+label = "ok"
+when = "Every branch and loop limit of the original skill was walked and behaved as intended"
+goto = "table"
+
+[[states.dry_run.choices]]
+label = "problem"
+when = "A state reads wrongly, or a branch or loop limit does not match the original skill"
+goto = "fix"
+
+[states.table]
+prompt = """Show the user a table that maps every step, branch and loop of the original `SKILL.md` to where it ended up:
+| original (section or line) | new place (state id, choice, or `SKILL.md`) | note |
+Every original step must appear. Mark anything dropped, merged, split, or given a new loop limit in the note column.
+Ask the user to confirm the table and wait for the answer. Do not rewrite `SKILL.md` yet."""
+
+[[states.table.choices]]
+label = "confirmed"
+when = "The user confirmed the table"
+goto = "rewrite"
+
+[[states.table.choices]]
+label = "objection"
+when = "The user objects to part of the table and wants the definition changed"
+goto = "fix"
+
+[[states.table.choices]]
+label = "abandon"
+when = "The user does not want the conversion"
+goto = "report_failed"
+
+[states.rewrite]
+prompt = """Reduce `SKILL.md` to the context and domain knowledge plus a fixed loop:
+run `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py start <flow.toml>`, follow the output, run the `next` command it prints, and repeat until it prints `Flow complete.`
+Add `allowed-tools` for the `flow.py` command, and bundle the engine with a relative symlink to `shared/flow/flow.py`."""
+goto = "report"
+
+[states.report]
+prompt = "Report the converted skill, the files changed, and every loop limit that was added."
+end = true
+
+[states.report_failed]
+prompt = "Report that the conversion was not completed (lint errors that could not be fixed, or the user abandoned it), and list the files left changed so the user can discard them."
+end = true

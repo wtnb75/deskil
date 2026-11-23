@@ -2,6 +2,11 @@
 
 `impl` の実装後レビューで却下した指摘の記録。1 項目 = 1 指摘で、項目 ID、レビューの種類、場所、指摘、却下の理由を書く。
 
+## B-041
+
+- 自己レビュー（flow-review）/ `plugins/deskil/skills/flow-convert/flow.toml` の `fix`: `max_visits = 3` を lint の失敗・dry-run の問題・対応表への異議の 3 経路で共有するので、ユーザーの異議が多いと上限に達して `report_failed` に進む。却下: 元のスキルに上限がなく、`flow-convert` の規則どおり追加した上限で、PR に明記した。経路ごとにステートを分けると定義が長くなるだけで、害はない。
+- security-review（自動）/ `shared/flow/flow.py` `_check_links`: 入れ子の git リポジトリ配下のリンクを、外側ではなくそのリポジトリで検査する。リポジトリの外のリンクを検査せずに辿る。却下: B-041 は `flow.py` に触れておらず範囲外。同じ指摘は B-038 で却下済み（下の B-038 を参照）。必要になれば別項目にする。
+
 ## B-014
 
 - simplify（simplification）/ `shared/bench/tokens.py`: `COLUMNS` と `Stats.row()` を `as_dict()` に置き換える。`render` と JSON 出力も同じ辞書から作る。却下: 動作は変わらず、列の順序（`total` の位置）の整理も要る。好みの範囲で、テストの書き換えも増える。
