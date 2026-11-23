@@ -24,7 +24,7 @@
 3. skill 側は `flow.py` のコピーも symlink も持たない。
 4. コマンドが無い環境では、skill が導入方法を案内して止まる（黙って失敗しない）。
 5. `flow.toml` に必要なエンジンの最小版を書ける。古いエンジンは、定義を誤解釈せずに止まり、更新方法を案内する。
-6. このリポジトリの `deskil` / `feature-a` プラグインも、同じ呼び方に移る。
+6. このリポジトリの `deskil` / `deskil-dev` / `feature-a` プラグインも、同じ呼び方に移る。これで `plugins/*/scripts/flow.py` の symlink がすべて無くなる。`deskil-dev` は `backlog.py` だけ、これまでどおり symlink で使う。
 7. 将来、別の道具（バックログ管理など）を `deskil <名前> …` として足せる入口にする（足すのは今回ではない）。
 
 ### 非ゴール（今回はやらない。詳細は `docs/BACKLOG.md`）
@@ -83,6 +83,12 @@ B の代償は、各マシンや CI で導入が要ること、マシンごと�
 | `plugins/*/scripts/flow.py`（symlink） | 削除 |
 
 - 対象: `plugins/deskil`、`plugins/feature-a`、`plugins/deskil-dev` の `flow.py` の symlink と、それを呼ぶ skill（`flow-author`、`flow-convert`、`flow-export`、`flow-review`、`review-loop`、`deskil-dev` の `run = [...]` を含む定義）。
+- skill の本文と定義の書き換えは、呼び出し行だけでなく、次も含む（実装者は `rg 'flow\.py|symlink' plugins/` で取りこぼしを確かめる）。
+  - `plugins/deskil/skills/flow-convert/flow.toml` と `flow-export/flow.toml`: notes の「`flow.py <args>` は `uv run …/flow.py <args>` のこと」と、各ステートの `flow.py lint` / `fmt` / `dry-run` / `export` / `graph` の文を `deskil flow …` にする。
+  - `flow-export` の手順（`allowed-tools` から `flow.py` を外す、同梱の symlink を外す）は、`Bash(deskil flow:*)` を外す手順に直し、symlink の話は削除する。
+  - `flow-author` の「skill に組み込むとき」（`allowed-tools` を足し、相対 symlink で同梱する）と、`flow-convert/flow.toml` の同じ趣旨の文は、`deskil flow` を呼び、先頭に §5.3 の導入確認を置く、に直す。
+  - `deskil-dev` の `add` / `decide` / `prio` / `impl` の `flow.toml` の notes にある「`backlog.py` and `flow.py` still find the backlog…」の文は、`backlog.py` と `deskil flow` に直す。
+- このリポジトリ自身を開発する人は、導入済みの `deskil` ではなく作業ツリーのエンジンを使いたい。`README.md` の開発の節に、`uv tool install --editable .` で導入する手順を書く（`deskil-dev` の skill が、編集中の `flow.py` で動く）。
 - `Taskfile.yml` の `lint-flow` は `uv run shared/flow/flow.py lint` のままでよい（このリポジトリの開発用なので、コミット前のソースを直接使う）。
 - `backlog.py` と `common.sh` の symlink は変えない。`CLAUDE.md` の「共有スクリプト」の記述から、`flow.py` を外す。
 - `flow.toml` の `run = ["uv", "run", "${DEF_DIR}/…"]` のような、定義内のコマンドは対象外（エンジンの呼び出しではない）。
