@@ -125,14 +125,6 @@
 - 概要: 手順と分岐がはっきりしている `flow-convert` と `flow-export` から、`flow-convert` のスキルで flow 定義に変換する。変換の対象を 4 つすべてにするか、手順が一直線に近い `flow-author` / `flow-review` は通常のスキルのままにするかは未決。変換後は、手順の対応表をユーザーが確認し、`lint` と `dry-run` を通す。
 - 判断: `flow-convert` と `flow-export` の 2 つを flow 定義に変換する（2026-11-23）。`flow-convert` のスキルを使い、対応表をユーザーが確認し、`lint` と `dry-run` を通す。`flow-author` / `flow-review` は一直線に近く、flow 化でトークンが増えるおそれがあるため通常のスキルのままにする（効果は B-014 で測れる）。
 
-### B-043 add: 追記の前に fetch して origin から作業ブランチを切る
-- 状態: ready
-- 優先度: P1
-- 追加: 2026-11-22
-- 背景: `deskil-dev:add` の flow には、`git fetch` やブランチを切る手順がなく、ローカルのデフォルトブランチが遅れていても、そのまま追記する（B-042 の原因の 1 つ）。また、追記後のコミットと push の手順もなく、手で行った。
-- 概要: 最初に `git fetch origin` をして、`impl` の `prepare` と同じく `origin/<default branch>` からブランチを切ってから追記する。コミットと push まで flow に含めるか、追記と `lint` で止めるかは未決。`check_dup` の一覧も `--ref origin/<default branch>` で読むようにする。
-- 判断: fetch・ブランチ作成・追記・`lint` で止める（2026-11-23）。最初に `git fetch origin` をして `origin/<default branch>` からブランチを切り、`check_dup` と `next-id` は origin を読む。コミットと push は、ユーザーが指示したときに行う（既存のルールどおり）ため、flow に含めない。
-
 ### B-044 flow: rename 後の run の追従
 - 状態: todo
 - 優先度: P3
@@ -442,4 +434,13 @@
 - 背景: `backlog.py next-id` は作業ツリーの `docs/BACKLOG.md` だけを見る。ローカルのデフォルトブランチが origin より遅れていると、origin にすでにある ID（B-039 / B-040）を返した。マージ前の PR のブランチで足された ID とも衝突しうる。気づけたのは、別に `--ref origin/main` で一覧を見ていたからで、偶然だった。
 - 概要: `next-id` に `--ref` を付け、作業ツリーと `origin/<default branch>` の ID の最大値の次を返す。マージ前の PR のブランチ（`origin/backlog/*`、`origin/docs/*`）の `docs/BACKLOG.md` も見るかは未決（見ると PR 同士の衝突も防げるが、ブランチが増えると遅くなるので、対象や件数を絞る）。`lint` で origin の別項目との ID の重複を検出する案（`lint --against <ref>`）は、必要になってから別項目にする。
 - 判断: `next-id` が、作業ツリー、`origin/<default branch>`、`origin/backlog/*`、`origin/docs/*` の `docs/BACKLOG.md` の ID の最大値の次を返す（2026-11-23）。PR 同士の衝突も防ぐため、マージ前のブランチも見る。ブランチは新しい順に最大 20 本に絞る（件数は実装時に調整してよい）。`lint --against` は別項目。
+- 完了: 2026-11-23
+
+### B-043 add: 追記の前に fetch して origin から作業ブランチを切る
+- 状態: done
+- 優先度: P1
+- 追加: 2026-11-22
+- 背景: `deskil-dev:add` の flow には、`git fetch` やブランチを切る手順がなく、ローカルのデフォルトブランチが遅れていても、そのまま追記する（B-042 の原因の 1 つ）。また、追記後のコミットと push の手順もなく、手で行った。
+- 概要: 最初に `git fetch origin` をして、`impl` の `prepare` と同じく `origin/<default branch>` からブランチを切ってから追記する。コミットと push まで flow に含めるか、追記と `lint` で止めるかは未決。`check_dup` の一覧も `--ref origin/<default branch>` で読むようにする。
+- 判断: fetch・ブランチ作成・追記・`lint` で止める（2026-11-23）。最初に `git fetch origin` をして `origin/<default branch>` からブランチを切り、`check_dup` と `next-id` は origin を読む。コミットと push は、ユーザーが指示したときに行う（既存のルールどおり）ため、flow に含めない。
 - 完了: 2026-11-23
