@@ -65,7 +65,8 @@ Run `git fetch origin`, then find the default branch with `git symbolic-ref --sh
 (it prints `origin/<default branch>`). If that fails, stop and ask the user which branch to start from.
 Create the branch from the fetched remote branch, not from the local one:
 `git switch -c backlog/<ID> origin/<default branch> --no-track`
-(the branch name is the item id only, e.g. `backlog/B-030`; do not add the title). Do not update the local default branch.
+(the branch name is the item id only, e.g. `backlog/B-030`; do not add the title). Do not update the local default branch:
+this fetch is what syncs the start point, so every run starts from the latest origin.
 If the switch refuses because the carried docs/BACKLOG.md change conflicts with origin, do not force it: stop and tell the user.
 If a worktree skill or tool is available, you may create the branch in a worktree from the same start point instead."""
 goto = "plan"
@@ -192,18 +193,13 @@ prompt = """Push the branch and create the pull request with `gh pr create`: the
 the body summarizes the change and the test results. Do not merge it. Note the PR number and URL.
 Write the PR title and body in the language the project's rules (CLAUDE.md) set for documents under `docs/`.
 If no such rule is found, write them in Japanese. Commit messages and code comments stay in English."""
-goto = "back_to_default"
-
-[states.back_to_default]
-prompt = """Switch back to the default branch with `git switch <default branch>` (the name found in prepare, without `origin/`),
-so that the next work does not start on this work branch. Do not pull or update it and do not delete the work branch:
-a new branch is always cut from origin (see prepare), so a stale local default branch does no harm.
-If the switch fails (for example the tree is not clean), do not force it: say so in the report."""
 goto = "report"
 
 [states.report]
 prompt = """Report the PR URL, what was implemented and the test results.
-Say clearly that the pull request is not merged."""
+Say clearly that the pull request is not merged.
+Say that you stay on the work branch, so that follow-up fixes (for example from the automatic review of the pull request)
+can be committed to it."""
 end = true
 
 [states.report_none]

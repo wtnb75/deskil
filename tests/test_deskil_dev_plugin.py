@@ -207,13 +207,12 @@ def test_implement_happy_path_order(tmp_path):
         "finish_backlog",
         "commit",
         "open_pr",
-        "back_to_default",
         "report",
     ]
     assert out.endswith("Flow complete.\n")
 
 
-TAIL = ["finish_backlog", "commit", "open_pr", "back_to_default", "report"]
+TAIL = ["finish_backlog", "commit", "open_pr", "report"]
 HEAD = ["pick", "prepare", "plan", "implement", "verify", "classify"]
 
 
