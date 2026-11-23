@@ -170,6 +170,45 @@ def test_remote_id_numbers_keeps_only_the_newest_branches(
     assert found & {20, 21} == {21}
 
 
+def test_remote_id_numbers_skips_branches_merged_into_the_default_branch(
+    backlog, tmp_path, monkeypatch
+):
+    work = _origin_and_clone(tmp_path, {"backlog/open": 31})
+    remote = tmp_path / "remote"
+    # a branch that main already contains (a merged, undeleted branch)
+    _git(remote, "branch", "backlog/merged", "main")
+    _git(work, "fetch", "-q", "origin")
+    monkeypatch.setattr(backlog, "MAX_PENDING_BRANCHES", 1)
+    monkeypatch.chdir(work)
+    # with a window of 1, the merged branch must not push the open one out
+    assert 31 in backlog.remote_id_numbers(Path("docs/BACKLOG.md"))
+
+
+def test_lint_against_reports_ids_used_for_another_item(
+    backlog, tmp_path, monkeypatch, capsys
+):
+    work = _origin_and_clone(tmp_path, {})
+    # B-001 is the same item as on origin/main; B-005 is new and B-002 got another title
+    text = SAMPLE.replace("### B-002 ", "### B-002 other ")
+    path = work / "docs/BACKLOG.md"
+    path.write_text(text, encoding="utf-8")
+    monkeypatch.chdir(work)
+    assert backlog.main(["--file", str(path), "lint"]) == 0
+    capsys.readouterr()
+    assert backlog.main(["--file", str(path), "lint", "--against", "origin/main"]) == 1
+    out = capsys.readouterr().out
+    assert "B-002 is used for a different item on origin/main" in out
+    assert "B-001" not in out
+
+
+def test_lint_against_clean_when_titles_match(backlog, tmp_path, monkeypatch, capsys):
+    work = _origin_and_clone(tmp_path, {})
+    monkeypatch.chdir(work)
+    path = work / "docs/BACKLOG.md"
+    assert backlog.main(["--file", str(path), "lint", "--against", "origin/main"]) == 0
+    assert capsys.readouterr().out == ""
+
+
 def test_remote_id_numbers_works_from_a_subdirectory_and_with_an_absolute_path(
     backlog, tmp_path, monkeypatch
 ):

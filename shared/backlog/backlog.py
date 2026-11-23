@@ -180,15 +180,6 @@ def remote_id_numbers(path: Path) -> set[int]:
     """Item numbers found in the backlog on origin: the default branch and the newest pre-merge work branches.
     Best effort and read-only: it uses the refs of the last `git fetch`; outside a repository, or without
     an origin, it returns an empty set. Branches that do not have the backlog file are skipped."""
-    branches = _git_output(
-        "for-each-ref",
-        "--sort=-committerdate",
-        f"--count={MAX_PENDING_BRANCHES}",
-        "--format=%(refname)",
-        *PENDING_BRANCH_PREFIXES,
-    )
-    if branches is None:  # not a git repository
-        return set()
     head = (_git_output("symbolic-ref", "refs/remotes/origin/HEAD") or "").strip()
     if head:
         refs = [head]
@@ -201,8 +192,23 @@ def remote_id_numbers(path: Path) -> set[int]:
                 "(run `git remote set-head origin --auto`)",
                 file=sys.stderr,
             )
+    # Branches already merged into the default branch add nothing (their ids are on it), and
+    # leaving them out keeps the newest-N window for the branches that are still open.
+    base = next(
+        (r for r in refs if _git_output("rev-parse", "--verify", "-q", r) is not None),
+        None,
+    )
+    branches = _git_output(
+        "for-each-ref",
+        "--sort=-committerdate",
+        f"--count={MAX_PENDING_BRANCHES}",
+        "--format=%(refname)",
+        *([f"--no-merged={base}"] if base else []),
+        *PENDING_BRANCH_PREFIXES,
+    )
     numbers: set[int] = set()
-    for ref in [*refs, *branches.split()]:
+    # outside a repository every ref fails to read below, so the result is an empty set
+    for ref in [*refs, *(branches or "").split()]:
         try:
             _, bl = read_backlog_ref(ref, path)
         except BacklogError:  # a branch without the backlog file, or no such ref
@@ -486,6 +492,19 @@ def lint(bl: Backlog) -> list[Problem]:
     return sorted(problems, key=lambda p: p.line)
 
 
+def lint_against(bl: Backlog, other: Backlog, ref: str) -> list[Problem]:
+    """Problems for ids that `other` (the backlog at `ref`) uses for an item with a different title."""
+    theirs = {i.id: i.title for i in other.items}
+    return [
+        Problem(
+            item.start + 1,
+            f"{item.id} is used for a different item on {ref} ({theirs[item.id]!r})",
+        )
+        for item in bl.items
+        if item.id in theirs and theirs[item.id] != item.title
+    ]
+
+
 # ---------------------------------------------------------------------------
 # set / archive
 # ---------------------------------------------------------------------------
@@ -667,8 +686,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
 
-    sub.add_parser(
+    p_lint = sub.add_parser(
         "lint", help="check the backlog format (exit 1 when there are problems)"
+    )
+    p_lint.add_argument(
+        "--against",
+        metavar="REF",
+        help="also report ids that REF (e.g. origin/main, as of the last fetch) uses for a different item",
     )
 
     p_set = sub.add_parser("set", help="set one single-line field of an item")
@@ -783,6 +807,12 @@ def run(args: argparse.Namespace) -> int:
         print(render_show(bl, args.id))
     elif args.command == "lint":
         problems = lint(bl)
+        if args.against:
+            _, other = read_backlog_ref(args.against, path)
+            problems = sorted(
+                [*problems, *lint_against(bl, other, args.against)],
+                key=lambda p: p.line,
+            )
         for problem in problems:
             print(
                 f"{args.file or os.path.relpath(path)}:{problem.line}: {problem.message}"
