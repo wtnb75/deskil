@@ -41,14 +41,6 @@
 
 ## todo / ready
 
-### B-046 flow: run が起動するスクリプト本体も ref と比べる
-- 状態: ready
-- 優先度: P1
-- 追加: 2026-11-23
-- 背景: 全体レビューで検証済み。`_ref_check` が比べるのは定義の TOML だけで、コミット済みの `run = ["sh", "${DEF_DIR}/s.sh"]` の `s.sh` を未コミットで書き換えても実行された。`add` / `prio` / `decide` の `run` も、symlink 先の `shared/backlog/backlog.py` が未コミットのまま実行される。仕様書（flow-engine-design.md §コマンドの実行）の対象は TOML のみで、`execute_state` の docstring（コマンドを紛れ込ませられない）は実際より強く言っている。
-- 概要: 保証の範囲を、定義の TOML と部品に限る。`execute_state` の docstring と仕様書（flow-engine-design.md §コマンドの実行）に、起動するスクリプト本体（`sh s.sh` の `s.sh`、`uv run X` の X、symlink 先）は比べず、利用者自身のコードとして信頼する前提だと明記する。コードの挙動は変えない。
-- 判断: 案 A（TOML のみと明記）。スクリプトが import する先まで追えず、argv のファイルだけを比べる部分保証は守れていない範囲を見えにくくする。ガードの目的は TOML の編集と `--force` によるコマンドの紛れ込みを防ぐことなので、その範囲を正確に書く。
-
 ### B-048 flow: `{ file }` の prompt を定義のハッシュに含める
 - 状態: ready
 - 優先度: P1
@@ -597,3 +589,12 @@
 - 背景: 全体レビューで検証済み。run の JSON は 0o600 だが、`<state>-<visit>.stdout` と `.stderr` は 0o644 で、出力に含まれる秘密を他のユーザーが読める。
 - 概要: 出力ファイルと `<run-id>` ディレクトリを 0o600 / 0o700 で作る。`.flow/runs` 全体の権限の扱いも合わせて決める。
 - 判断: B-050 に合流した（出力を直接ファイルへ向ける変更と同じ箇所に触れるので、同じ PR で直す）。`<run-id>` と `.flow/runs` を 0o700、出力ファイルを 0o600 にする方針は B-050 の概要に移した。
+
+### B-046 flow: run が起動するスクリプト本体も ref と比べる
+- 状態: done
+- 優先度: P1
+- 追加: 2026-11-23
+- 背景: 全体レビューで検証済み。`_ref_check` が比べるのは定義の TOML だけで、コミット済みの `run = ["sh", "${DEF_DIR}/s.sh"]` の `s.sh` を未コミットで書き換えても実行された。`add` / `prio` / `decide` の `run` も、symlink 先の `shared/backlog/backlog.py` が未コミットのまま実行される。仕様書（flow-engine-design.md §コマンドの実行）の対象は TOML のみで、`execute_state` の docstring（コマンドを紛れ込ませられない）は実際より強く言っている。
+- 概要: 保証の範囲を、定義の TOML と部品に限る。`execute_state` の docstring と仕様書（flow-engine-design.md §コマンドの実行）に、起動するスクリプト本体（`sh s.sh` の `s.sh`、`uv run X` の X、symlink 先）は比べず、利用者自身のコードとして信頼する前提だと明記する。コードの挙動は変えない。
+- 判断: 案 A（TOML のみと明記）。スクリプトが import する先まで追えず、argv のファイルだけを比べる部分保証は守れていない範囲を見えにくくする。ガードの目的は TOML の編集と `--force` によるコマンドの紛れ込みを防ぐことなので、その範囲を正確に書く。
+- 完了: 2026-11-23

@@ -1557,6 +1557,9 @@ def execute_state(
     The command runs only if every file of the definition (the root and its parts) is identical
     to its copy at the run's ref (checked on every call, so editing a file and using --force
     cannot smuggle in commands). The definition was built from the bytes that were compared.
+    The guarantee covers the definition files only. The program a command launches (the script
+    in `sh s.sh`, the target of `uv run X`, the file behind a symlink) is not compared; it is
+    trusted as the user's own code.
     Otherwise the command is only shown. A command that cannot start is reported, not raised.
     """
     if st.run is None:
