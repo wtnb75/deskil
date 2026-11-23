@@ -76,7 +76,7 @@ B の代償は、各マシンや CI で導入が要ること、マシンごと�
 
 ### 5.2 skill の呼び方
 
-| 現在 | 変更後 |
+| これまで（`flow.py` を同梱していた書き方） | 変更後 |
 |---|---|
 | `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py start …` | `deskil flow start …` |
 | `allowed-tools: Bash(uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py:*)` | `allowed-tools: Bash(deskil flow:*)` |

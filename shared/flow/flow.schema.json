@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "flow.schema.json",
   "title": "deskil flow definition (flow.toml)",
-  "description": "Structure of a flow definition. Checks that need the whole definition (transition targets, reachability, include exits, files that exist) are done by `flow.py lint`, not here.",
+  "description": "Structure of a flow definition. Checks that need the whole definition (transition targets, reachability, include exits, files that exist) are done by `deskil flow lint`, not here.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "start", "states"],

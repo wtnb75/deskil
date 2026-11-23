@@ -23,11 +23,14 @@ deskil --version
 
 Skills check `deskil --version` first and tell you to install it when it is missing.
 
-To move a skill that bundles its own copy of `flow.py` to the command:
+Earlier versions had you copy (or symlink) `flow.py` into every skill and call it by its path. That is no
+longer needed. If you did, migrate a skill like this:
 
 1. Install `deskil` as above.
 2. Delete the copied `flow.py` and the task that synchronises it.
-3. Call `deskil flow ...` instead of `uv run .../flow.py ...`, and set `allowed-tools: Bash(deskil flow:*)`.
+3. In `SKILL.md`, replace each call of the copy (for example `uv run <path>/flow.py start flow.toml`) with
+   `deskil flow start flow.toml`, and set `allowed-tools: Bash(deskil --version), Bash(deskil flow:*)`.
+4. Put the install check (see any skill of the `deskil` plugin) first in the body.
 
 ## Layout
 

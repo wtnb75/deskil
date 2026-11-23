@@ -108,7 +108,7 @@
 
 ## 受け入れ条件
 
-- `uv run flow.py lint` が、4 つの `flow.toml` すべてで通る。
+- `deskil flow lint` が、4 つの `flow.toml` すべてで通る。
 - `backlog.py` の各サブコマンドと `lint` の各検査に、テストがある（`tests/test_backlog.py`）。
 - 実際の `docs/BACKLOG.md`（移行後）が `backlog.py lint` を通る。これもテストにする。
 - プラグイン自体の検査（`plugin.json`、symlink が相対でリポジトリ内を指す、スキルの frontmatter）のテスト（`tests/test_deskil_dev_plugin.py`）がある。
