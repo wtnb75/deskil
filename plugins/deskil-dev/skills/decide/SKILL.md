@@ -9,6 +9,10 @@ Run this skill as a step-by-step flow.
 The user may name one item (`B-012`) or a batch: `top 10` (the first 10 by priority) or `P2 10` (the first 10 of
 priority P2 or higher). Keep that scope from the request; the flow reads it in its first step.
 
+In a batch, an item with an open point and several possible approaches is discussed one at a time (options and
+trade-offs, then the user chooses); only items whose approach is already clear are confirmed together in a table.
+Defer is recommended only when there is a real reason the item cannot be decided now.
+
 In the steps, `backlog.py <args>` means `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/backlog.py <args>`.
 
 1. Run `uv run ${CLAUDE_PLUGIN_ROOT}/scripts/flow.py start ${CLAUDE_PLUGIN_ROOT}/skills/decide/flow.toml`.

@@ -167,6 +167,29 @@ def test_decide_lint_failures_end_in_report_fail(tmp_path):
     assert visited(out)[-1] == "report_fail"
 
 
+def test_decide_batch_consults_items_with_open_points_one_by_one():
+    import tomllib
+
+    flow = tomllib.loads((DEV / "skills" / "decide" / "flow.toml").read_text())
+    options = flow["states"]["options"]["prompt"]
+    confirm = flow["states"]["confirm"]["prompt"]
+    # An item with an open point is discussed one at a time, with options and trade-offs.
+    assert "one at a time" in options
+    assert "open point" in options
+    assert "trade-offs" in options
+    # Only items with a clear approach go into the table.
+    assert "already clear" in options
+    # Defer needs a real reason; "needs discussion" is not one.
+    assert "real reason" in options
+    assert "not a reason" in options
+    # Confirm asks for a choice on each consulted item, separately from the table.
+    assert "one at a time" in confirm
+    assert "which option" in confirm
+    skill = (DEV / "skills" / "decide" / "SKILL.md").read_text()
+    assert "one at a time" in skill
+    assert "real reason" in skill
+
+
 def test_implement_happy_path_order(tmp_path):
     out = dry_run("impl", ["found", "pass", "skip"], tmp_path)
     assert visited(out) == [

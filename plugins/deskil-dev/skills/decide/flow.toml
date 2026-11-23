@@ -38,14 +38,23 @@ goto = "options"
 prompt = """One item: give the user 2 or 3 real options for how to do it (drop weak ones), each with what it trades off,
 and say which one you recommend and why. Include "drop the item" and "not now / not decidable yet" when they are real answers.
 Offer ready only for an approach that can be implemented right now (see the notes).
-Batch: show one table with a row per item (ID, title, recommended outcome: ready / dropped / defer, the approach in
-one line, and the reason). Do not write anything to the backlog yet.
+Batch: first split the items by whether anything is still open.
+- An item whose 概要 has an open point and more than one possible approach needs a consultation: take these one at a time,
+  giving 2 or 3 real options with their trade-offs and a recommendation, as for a single item, and wait for the user's
+  choice before the next one. Do not turn such an item into a defer row just to keep the batch short.
+- An item whose approach is already clear (nothing open, one sensible approach) goes into one table with a row per item
+  (ID, title, recommended outcome: ready / dropped / defer, the approach in one line, and the reason).
+Recommend defer only when there is a real reason the item cannot be decided now (for example it depends on something
+unfinished or on information the user does not have yet); say that reason in the row. "It needs discussion" is not a reason:
+discuss it.
+Do not write anything to the backlog yet.
 If the superpowers:brainstorming skill is available, use it for this step; otherwise do it yourself."""
 goto = "confirm"
 
 [states.confirm]
 prompt = """One item: ask the user which option they choose, and wait for the answer.
-Batch: ask the user to confirm or correct the table as a whole, and wait. Apply their corrections to the table.
+Batch: for each item that was consulted one at a time, ask which option the user chooses and wait for the answer.
+For the items in the table, ask the user to confirm or correct the table as a whole, and wait. Apply their corrections.
 Then fix the outcome of every item (ready, dropped or defer). Nothing is written to the backlog in this step."""
 goto = "record"
 
