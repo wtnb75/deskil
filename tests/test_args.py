@@ -82,6 +82,76 @@ def test_lint_unknown_reference(flow, write_def, tmp_path):
     assert "unknown-arg" in codes
 
 
+ROOT_WITH_PART = """\
+schema = 1
+start = "a"
+
+[args.item]
+required = true
+
+[states.a]
+prompt = "go"
+goto = "p"
+
+[states.p]
+include = "part.toml"
+exits = { ok = "e" }
+
+[states.e]
+prompt = "Done"
+end = true
+"""
+
+PART_TEXT = """\
+schema = 1
+start = "r"
+
+[states.r]
+prompt = "{prompt}"
+goto = "ok"
+
+[states.ok]
+prompt = "ok"
+end = true
+"""
+
+
+def _part_def(write_def, tmp_path, prompt):
+    write_def(tmp_path, PART_TEXT.replace("{prompt}", prompt), "part.toml")
+    return write_def(tmp_path, ROOT_WITH_PART)
+
+
+def test_lint_unknown_reference_in_part(flow, write_def, tmp_path):
+    p = _part_def(write_def, tmp_path, "work on {{arg.nope}}")
+    issues = [i for i in flow.lint(p) if i.code == "unknown-arg"]
+    assert [i.where for i in issues] == ["states.p__r.prompt"]
+
+
+def test_lint_declared_reference_in_part(flow, write_def, tmp_path):
+    p = _part_def(write_def, tmp_path, "work on {{arg.item}}")
+    assert not [i for i in flow.lint(p) if i.level == "error"]
+
+
+def test_lint_unknown_reference_in_file_text(flow, write_def, tmp_path):
+    (tmp_path / "text.md").write_text("see {{arg.nope}}\n", encoding="utf-8")
+    p = write_def(
+        tmp_path,
+        'schema = 1\nstart = "a"\n[states.a]\nprompt = { file = "text.md" }\nend = true\n',
+    )
+    issues = [i for i in flow.lint(p) if i.code == "unknown-arg"]
+    assert [i.where for i in issues] == ["states.a.prompt"]
+
+
+def test_lint_unknown_reference_in_part_file_text(flow, write_def, tmp_path):
+    (tmp_path / "text.md").write_text("see {{arg.nope}}\n", encoding="utf-8")
+    p = _part_def(write_def, tmp_path, "x")
+    (tmp_path / "part.toml").write_text(
+        PART_TEXT.replace('"{prompt}"', '{ file = "text.md" }'), encoding="utf-8"
+    )
+    issues = [i for i in flow.lint(p) if i.code == "unknown-arg"]
+    assert [i.where for i in issues] == ["states.p__r.prompt"]
+
+
 @pytest.mark.parametrize(
     "block, code",
     [

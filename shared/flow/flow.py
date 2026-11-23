@@ -225,6 +225,51 @@ def _check_arg_refs(raw: dict, issues: list[Issue]) -> None:
                 _err(issues, "unknown-arg", where, f"argument '{name}' is not declared")
 
 
+def _check_merged_arg_refs(
+    merged: dict,
+    declared: set[str],
+    base_dir: Path,
+    issues: list[Issue],
+    sources: dict[Path, bytes] | None = None,
+) -> None:
+    """Check {{arg.NAME}} in the texts of an expanded definition, including parts and { file } texts.
+
+    A part cannot be checked alone (it has no [args] of its own that apply), so this runs on the
+    expanded definition against the root's [args]. Inline texts of the root are already checked
+    by _check_arg_refs; only the other texts are read here.
+    """
+    # (where, text, from a part): inline texts of the root are skipped, those of a part are not
+    texts: list[tuple[str, object, bool]] = [
+        (f"notes.common.{n}", v, INCLUDE_SEP in n)
+        for n, v in merged["notes"]["common"].items()
+    ]
+    for sid, st in merged["states"].items():
+        sub = INCLUDE_SEP in sid
+        texts.append((f"states.{sid}.prompt", st["prompt"], sub))
+        texts += [
+            (f"states.{sid}.notes.always[{i}]", v, sub)
+            for i, v in enumerate(st.get("_always", []))
+        ]
+        for i, ch in enumerate(st.get("choices", [])):
+            texts.append((f"states.{sid}.choices[{i}].when", ch["when"], sub))
+    seen: set[tuple[str, str]] = set()
+    for where, value, sub in texts:
+        if isinstance(value, dict):
+            try:
+                p = base_dir / value["file"]
+                if sources is not None and p not in sources:
+                    sources[p] = read_source(p)  # kept: the build reads it from here
+                value = read_text_value(value, base_dir, sources)
+            except (FlowError, OSError):
+                continue  # a missing or unreadable file is reported elsewhere
+        elif not isinstance(value, str) or not sub:
+            continue
+        for name in ARG_REF_RE.findall(value):
+            if name not in declared and (value, name) not in seen:
+                seen.add((value, name))  # the same text is reported once
+                _err(issues, "unknown-arg", where, f"argument '{name}' is not declared")
+
+
 def _check_target(
     value: object, where: str, state_ids: set[str], issues: list[Issue]
 ) -> None:
@@ -1013,7 +1058,9 @@ def lint_raw(raw: dict, path: Path, read=read_toml) -> list[Issue]:
     return _lint_expanded(raw, path, read)[0]
 
 
-def _lint_expanded(raw: dict, path: Path, read) -> tuple[list[Issue], dict | None]:
+def _lint_expanded(
+    raw: dict, path: Path, read, sources: dict[Path, bytes] | None = None
+) -> tuple[list[Issue], dict | None]:
     """Lint a definition and its parts; also return the expanded definition if it is free of errors."""
     issues = lint_schema(raw, path.resolve().parent)
     if any(i.level == "error" for i in issues):
@@ -1021,6 +1068,11 @@ def _lint_expanded(raw: dict, path: Path, read) -> tuple[list[Issue], dict | Non
     _check_arg_refs(raw, issues)
     merged, more = expand_includes(raw, path, read)
     issues += more
+    if any(i.level == "error" for i in issues):
+        return issues, None
+    _check_merged_arg_refs(
+        merged, set(raw.get("args", {})), path.resolve().parent, issues, sources
+    )
     if any(i.level == "error" for i in issues):
         return issues, None
     issues += lint_graph(merged)
@@ -1168,7 +1220,7 @@ def load_definition(path: Path) -> Definition:
         return parse_toml(p, sources[p])
 
     raw = read(path)
-    issues, merged = _lint_expanded(raw, path, read)
+    issues, merged = _lint_expanded(raw, path, read, sources)
     errors = [i for i in issues if i.level == "error"]
     if errors or merged is None:
         lines = "\n".join(format_issue(i) for i in errors)
