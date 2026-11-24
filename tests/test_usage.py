@@ -267,3 +267,62 @@ def test_load_usage_returns_none_for_corrupt_file(tmp_path):
     assert usage.load_usage(tmp_path, "r1") is None
     (d / "usage.json").write_text("[1]", encoding="utf-8")
     assert usage.load_usage(tmp_path, "r1") is None
+
+
+def _state(visits=1, output=0, input=0, sub_total=0):
+    return {
+        "visits": visits,
+        "input": input,
+        "cache_create": 0,
+        "cache_read": 0,
+        "output": output,
+        "turns": 1,
+        "tool_calls": 0,
+        "sub_total": sub_total,
+    }
+
+
+def test_aggregate_means_over_runs_that_visited():
+    runs = [
+        {"states": {"x": _state(visits=1, output=100), "y": _state(output=10)}},
+        {"states": {"x": _state(visits=3, output=300), "y": _state(output=10)}},
+        {"states": {"y": _state(output=10)}},
+    ]
+    agg = usage.aggregate(runs)
+    assert agg["runs"] == 3
+    x = agg["states"]["x"]
+    assert x["runs"] == 2
+    assert x["visits_mean"] == 2
+    assert x["total_mean"] == 200
+    assert (x["total_min"], x["total_max"]) == (100, 300)
+    assert x["output_mean"] == 200
+    assert agg["states"]["y"]["runs"] == 3
+
+
+def test_aggregate_includes_sub_total():
+    agg = usage.aggregate([{"states": {"x": _state(output=5, input=1, sub_total=40)}}])
+    assert agg["states"]["x"]["total_mean"] == 46
+    assert agg["states"]["x"]["output_mean"] == 5
+
+
+def test_format_table_sorted_by_total_desc_with_share():
+    agg = usage.aggregate(
+        [{"states": {"small": _state(output=100), "big": _state(output=300)}}]
+    )
+    text = usage.format_table(agg)
+    lines = text.splitlines()
+    assert lines[0].split() == [
+        "state",
+        "runs",
+        "visits",
+        "total(mean)",
+        "min",
+        "max",
+        "output(mean)",
+        "share",
+    ]
+    assert lines[1].split()[0] == "big"
+    assert lines[2].split()[0] == "small"
+    assert lines[1].split()[-1] == "75.0%"
+    shares = [float(ln.split()[-1].rstrip("%")) for ln in lines[1:]]
+    assert abs(sum(shares) - 100.0) < 0.2

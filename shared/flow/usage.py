@@ -241,6 +241,76 @@ def save_usage(state_dir: Path, run_id: str, data: dict) -> Path:
     return path
 
 
+def _state_total(s: dict) -> int:
+    """A run's total tokens in one state, including subagents."""
+    return sum(
+        _count(s, k)
+        for k in ("input", "cache_create", "cache_read", "output", "sub_total")
+    )
+
+
+def aggregate(usages: list[dict]) -> dict:
+    """Aggregate per-state usage over runs.
+
+    A run that never visited a state is left out of that state's statistics.
+    """
+    per_state: dict[str, list[dict]] = {}
+    for u in usages:
+        for state, s in (u.get("states") or {}).items():
+            per_state.setdefault(state, []).append(s)
+    states = {}
+    for state, items in per_state.items():
+        totals = [_state_total(s) for s in items]
+        n = len(items)
+        states[state] = {
+            "runs": n,
+            "visits_mean": sum(_count(s, "visits") for s in items) / n,
+            "total_mean": sum(totals) / n,
+            "total_min": min(totals),
+            "total_max": max(totals),
+            "output_mean": sum(_count(s, "output") for s in items) / n,
+        }
+    return {"runs": len(usages), "states": states}
+
+
+def format_table(agg: dict) -> str:
+    """Render an aggregate as a text table, largest mean total first."""
+    header = [
+        "state",
+        "runs",
+        "visits",
+        "total(mean)",
+        "min",
+        "max",
+        "output(mean)",
+        "share",
+    ]
+    states = agg["states"]
+    grand = sum(s["total_mean"] for s in states.values())
+    rows = []
+    for state, s in sorted(states.items(), key=lambda kv: -kv[1]["total_mean"]):
+        share = s["total_mean"] / grand * 100 if grand else 0.0
+        rows.append(
+            [
+                state,
+                str(s["runs"]),
+                f"{s['visits_mean']:.1f}",
+                f"{s['total_mean']:,.0f}",
+                f"{s['total_min']:,}",
+                f"{s['total_max']:,}",
+                f"{s['output_mean']:,.0f}",
+                f"{share:.1f}%",
+            ]
+        )
+    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
+    lines = []
+    for r in [header, *rows]:
+        cells = [r[0].ljust(widths[0])]
+        cells += [c.rjust(w) for c, w in zip(r[1:], widths[1:], strict=True)]
+        lines.append("  ".join(cells).rstrip())
+    return "\n".join(lines) + "\n"
+
+
 def load_usage(state_dir: Path, run_id: str) -> dict | None:
     """Read a saved usage.json; None if absent or corrupt."""
     try:

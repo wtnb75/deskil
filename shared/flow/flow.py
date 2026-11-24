@@ -2050,6 +2050,45 @@ def _next_step_locked(
     return out
 
 
+def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
+    """Usage of a run: computed from the session log, else the saved usage.json.
+
+    With save=True a freshly computed result is written to usage.json; a saved
+    file that was merely read is left alone.
+    """
+    run = load_run(state_dir, run_id)
+    data = usage.compute_usage(
+        run_id=run.run_id,
+        definition=run.definition,
+        definition_hash=run.definition_hash,
+        session_id=run.session_id,
+        started_at=run.started_at,
+        history=run.history,
+        visits=run.visits,
+        status=run.status,
+        current=run.current,
+    )
+    if data is not None:
+        if save:
+            usage.save_usage(state_dir, run_id, data)
+        return data
+    data = usage.load_usage(state_dir, run_id)
+    if data is None:
+        raise FlowError(
+            f"no usage data for run {run_id}: no session log and no saved usage.json"
+        )
+    return data
+
+
+def usage_text(run_ids: list[str], state_dir: Path, save: bool, as_json: bool) -> str:
+    per_run = {rid: load_run_usage(rid, state_dir, save) for rid in run_ids}
+    agg = usage.aggregate(list(per_run.values()))
+    if as_json:
+        out = {**agg, "per_run": per_run}
+        return json.dumps(out, ensure_ascii=False, indent=2) + "\n"
+    return usage.format_table(agg)
+
+
 def _save_usage_on_end(run: Run, state_dir: Path) -> None:
     """Save the run's per-state token usage; never fail the step that ended the run."""
     try:
@@ -3051,6 +3090,17 @@ def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     p.add_argument("run_id")
     p.add_argument("--json", action="store_true", required=True, help="output JSON")
 
+    p = sub.add_parser(
+        "usage",
+        parents=[common],
+        help="aggregate per-state token usage over runs",
+    )
+    p.add_argument("run_ids", nargs="+", metavar="RUN_ID")
+    p.add_argument(
+        "--save", action="store_true", help="write usage.json for computed runs"
+    )
+    p.add_argument("--json", action="store_true", help="output JSON")
+
     sub.add_parser(
         "runs",
         parents=[common],
@@ -3210,6 +3260,8 @@ def main(
             )
         elif args.command == "stats":
             out = stats_json(args.run_id, state_dir)
+        elif args.command == "usage":
+            out = usage_text(args.run_ids, state_dir, args.save, args.json)
         elif args.command == "runs":
             out = runs_text(state_dir)
         elif args.command == "gc":
