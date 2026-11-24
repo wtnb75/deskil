@@ -1,5 +1,6 @@
 """Tests for the per-visit timeline (with per-subagent usage)."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import usage
@@ -192,3 +193,77 @@ def test_timeline_from_history_has_none_tokens():
         ):
             assert row[key] is None
         assert row["agents"] == []
+
+
+def _log_line(minutes, mid, o):
+    return json.dumps(
+        {
+            "type": "assistant",
+            "timestamp": _iso(minutes),
+            "message": {
+                "id": mid,
+                "content": [],
+                "usage": {"input_tokens": 1, "output_tokens": o},
+            },
+        }
+    )
+
+
+def _write_project(tmp_path, session="s1"):
+    base = tmp_path / "projects" / "proj"
+    subs = base / session / "subagents"
+    subs.mkdir(parents=True)
+    (base / f"{session}.jsonl").write_text(
+        "\n".join([_log_line(5, "m1", 10), _log_line(25, "m2", 20)]) + "\n",
+        encoding="utf-8",
+    )
+    (subs / "agent-a1b2.jsonl").write_text(
+        "\n".join([_log_line(6, "x1", 3), _log_line(26, "x2", 4)]) + "\n",
+        encoding="utf-8",
+    )
+    (subs / "agent-c3d4.jsonl").write_text(
+        _log_line(15, "y1", 7) + "\n", encoding="utf-8"
+    )
+    return tmp_path / "projects"
+
+
+def _compute(tmp_path):
+    return usage.compute_usage(
+        run_id="r1",
+        definition="/d/flow.toml",
+        definition_hash="h",
+        session_id="s1",
+        started_at=_iso(0),
+        history=HISTORY,
+        visits={"a": 2, "b": 1},
+        status="ended",
+        current="a",
+        projects_dir=_write_project(tmp_path),
+        now=_at(40),
+    )
+
+
+def test_compute_usage_includes_timeline(tmp_path):
+    got = _compute(tmp_path)
+    tl = got["timeline"]
+    assert [(v["state"], v["visit"]) for v in tl] == [("a", 1), ("b", 1), ("a", 2)]
+    names = {a["name"] for v in tl for a in v["agents"]}
+    assert names == {"agent-a1b2", "agent-c3d4"}
+    for state, s in got["states"].items():
+        visits = [v for v in tl if v["state"] == state]
+        assert sum(v["sub_total"] for v in visits) == s["sub_total"]
+
+
+def test_compute_usage_states_unchanged(tmp_path):
+    states = _compute(tmp_path)["states"]
+    assert states["a"]["output"] == 30
+    assert states["a"]["sub_total"] == (1 + 3) + (1 + 4)
+    assert states["b"]["output"] == 0
+    assert states["b"]["sub_total"] == 1 + 7
+
+
+def test_compute_usage_timeline_agent_name_is_file_stem(tmp_path):
+    tl = _compute(tmp_path)["timeline"]
+    assert [a["name"] for a in tl[0]["agents"]] == ["agent-a1b2"]
+    assert [a["name"] for a in tl[1]["agents"]] == ["agent-c3d4"]
+    assert [a["name"] for a in tl[2]["agents"]] == ["agent-a1b2"]

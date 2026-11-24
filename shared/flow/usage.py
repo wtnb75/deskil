@@ -140,6 +140,11 @@ def find_session_log(session_id: str, projects_dir: Path | None = None) -> Path 
     return next(iter(projects_dir.glob(f"*/{session_id}.jsonl")), None)
 
 
+def agent_logs(main_log: Path) -> list[Path]:
+    """Subagent logs next to a main log: <id>/subagents/agent-*.jsonl, sorted."""
+    return sorted((main_log.with_suffix("") / "subagents").glob("agent-*.jsonl"))
+
+
 def intervals_of(
     history: list[dict], started_at: str, status: str, current: str
 ) -> list[Interval]:
@@ -361,18 +366,30 @@ def compute_usage(
     status: str,
     current: str,
     projects_dir: Path | None = None,
+    now: datetime | None = None,
 ) -> dict | None:
     """Per-state token usage of a run in the shape of usage.json.
 
-    None when the run has no session id or its session log cannot be found.
+    Also holds a per-visit `timeline`. None when the run has no session id or
+    its session log cannot be found.
     """
     log = find_session_log(session_id, projects_dir)
     if log is None:
         return None
-    turns = read_turns(log)
-    # Subagent logs sit next to the main log: <id>/subagents/agent-*.jsonl.
-    for sub_log in sorted((log.with_suffix("") / "subagents").glob("agent-*.jsonl")):
+    main_turns = read_turns(log)
+    sub_logs = agent_logs(log)
+    turns = list(main_turns)
+    for sub_log in sub_logs:
         turns += read_turns(sub_log, sub=True)
+    timeline = build_timeline(
+        history=history,
+        started_at=started_at,
+        status=status,
+        current=current,
+        turns=main_turns,
+        agents={p.stem: read_turns(p, sub=False) for p in sub_logs},
+        now=now or datetime.now().astimezone(),
+    )
     buckets = split_by_state(turns, intervals_of(history, started_at, status, current))
     states = {}
     for state in sorted(set(visits) | set(buckets)):
@@ -393,6 +410,7 @@ def compute_usage(
         "definition": definition,
         "definition_hash": definition_hash,
         "states": states,
+        "timeline": timeline,
     }
 
 
