@@ -1,4 +1,7 @@
+import json
+
 import pytest
+import usage
 
 DEF = """\
 schema = 1
@@ -69,6 +72,179 @@ def test_graph_does_not_create_state_files(flow, p, tmp_path):
 def test_cli_graph(flow, p, capsys):
     assert flow.main(["graph", str(p)]) == 0
     assert capsys.readouterr().out == EXPECTED
+
+
+def _stat(total, visits):
+    return {
+        "runs": 2,
+        "visits_mean": visits,
+        "total_mean": total,
+        "total_min": total,
+        "total_max": total,
+        "output_mean": 0.0,
+    }
+
+
+AGG = {"runs": 2, "states": {"a": _stat(30000.0, 2.0), "w": _stat(10000.0, 1.0)}}
+
+
+def test_graph_usage_labels_and_classes(flow, p):
+    out = flow.graph_mermaid(p, AGG)
+    assert '  n_a["a<br/>30.0k tokens<br/>2.0 visits"]\n' in out
+    assert '  n_w["w<br/>10.0k tokens<br/>1.0 visits"]\n' in out
+    assert '  n_end(["end"])\n' in out
+    assert "  class n_a heat4\n" in out  # share 0.75 starts heat4
+    assert "  class n_w heat2\n" in out  # share 0.25 starts heat2
+    assert "class n_end" not in out
+
+
+def test_graph_usage_classdefs_present(flow, p):
+    out = flow.graph_mermaid(p, AGG)
+    for i in range(1, 5):
+        assert f"  classDef heat{i} fill:" in out
+    assert "classDef" not in flow.graph_mermaid(p)
+
+
+def test_graph_usage_steps_and_end_state_shape(flow, p):
+    agg = {
+        "runs": 1,
+        "states": {
+            "a": _stat(10.0, 1.0),
+            "w": _stat(30.0, 1.0),
+            "end": _stat(60.0, 1.0),
+        },
+    }
+    out = flow.graph_mermaid(p, agg)
+    assert '  n_end(["end<br/>60 tokens<br/>1.0 visits"])\n' in out
+    assert "  class n_a heat1\n" in out  # 0.1
+    assert "  class n_w heat2\n" in out  # 0.3
+    assert "  class n_end heat3\n" in out  # 0.6
+
+
+def test_graph_usage_zero_total_gets_no_class(flow, p):
+    agg = {"runs": 1, "states": {"a": _stat(0.0, 1.0), "w": _stat(5.0, 1.0)}}
+    out = flow.graph_mermaid(p, agg)
+    assert '  n_a["a"]\n' in out
+    assert "class n_a" not in out
+    assert "  class n_w heat4\n" in out
+
+
+def test_format_tokens(flow):
+    assert flow._format_tokens(999) == "999"
+    assert flow._format_tokens(1234) == "1.2k"
+    assert flow._format_tokens(1234567) == "1.2M"
+
+
+@pytest.mark.parametrize(
+    ("n", "expected"),
+    [
+        (1000, "1.0k"),
+        (999.5, "1.0k"),
+        (999_999, "1.0M"),
+        (1_000_000, "1.0M"),
+        (999_949, "999.9k"),
+        (999_949_999, "999.9M"),
+        (999_950_000, "1.0G"),
+        (999_999_999, "1.0G"),
+        (1_000_000_000, "1.0G"),
+    ],
+)
+def test_format_tokens_unit_boundaries(flow, n, expected):
+    assert flow._format_tokens(n) == expected
+
+
+def test_graph_usage_missing_run_exits_1(flow, p, tmp_path, capsys):
+    argv = ["graph", str(p), "--usage", "missing", "--state-dir", str(tmp_path)]
+    assert flow.main(argv) == 1
+    assert capsys.readouterr().err.startswith("error:")
+
+
+def test_graph_command_usage_flag(flow, p, tmp_path, capsys):
+    import json
+
+    import usage
+
+    d = tmp_path / "state"
+    d.mkdir()
+    run = {
+        "run_id": "r1",
+        "definition": "flow.toml",
+        "definition_hash": "h",
+        "current": "end",
+        "visits": {"a": 1},
+        "history": [],
+        "status": "ended",
+        "session_id": "s",
+        "started_at": "2026-01-01T00:00:00Z",
+    }
+    (d / "r1.json").write_text(json.dumps(run), encoding="utf-8")
+    data = {
+        "run_id": "r1",
+        "states": {
+            "a": {
+                "visits": 1,
+                "input": 10,
+                "cache_create": 20,
+                "cache_read": 30,
+                "output": 40,
+                "turns": 1,
+                "tool_calls": 0,
+                "sub_total": 0,
+            }
+        },
+    }
+    usage.save_usage(d, "r1", data)
+    assert flow.main(["graph", str(p), "--usage", "r1", "--state-dir", str(d)]) == 0
+    out = capsys.readouterr().out
+    assert "classDef heat1" in out
+    assert "a<br/>100 tokens<br/>1.0 visits" in out
+
+
+def test_graph_usage_shares_ignore_states_not_in_definition(flow, p):
+    agg = {
+        "runs": 1,
+        "states": {
+            "a": _stat(30.0, 1.0),
+            "w": _stat(10.0, 1.0),
+            "gone": _stat(60.0, 1.0),
+        },
+    }
+    out = flow.graph_mermaid(p, agg)
+    assert "  class n_a heat4\n" in out  # 30 of 40 drawn tokens, not 30 of 100
+    assert "  class n_w heat2\n" in out
+
+
+def test_graph_command_warns_about_states_not_in_definition(flow, p, tmp_path, capsys):
+    d = tmp_path / "state"
+    d.mkdir()
+    run = {
+        "run_id": "r1",
+        "definition": "flow.toml",
+        "definition_hash": "h",
+        "current": "end",
+        "visits": {"a": 1},
+        "history": [],
+        "status": "ended",
+        "session_id": "s",
+        "started_at": "2026-01-01T00:00:00Z",
+    }
+    (d / "r1.json").write_text(json.dumps(run), encoding="utf-8")
+    state = {
+        "visits": 1,
+        "input": 10,
+        "cache_create": 0,
+        "cache_read": 0,
+        "output": 0,
+        "turns": 1,
+        "tool_calls": 0,
+        "sub_total": 0,
+    }
+    data = {"run_id": "r1", "states": {"a": state, "zz": state, "b": state}}
+    usage.save_usage(d, "r1", data)
+    assert flow.main(["graph", str(p), "--usage", "r1", "--state-dir", str(d)]) == 0
+    captured = capsys.readouterr()
+    assert captured.err == f"warning: usage has states that are not in {p}: b, zz\n"
+    assert captured.out.startswith("flowchart TD")
 
 
 def test_cli_graph_error_exit_1(flow, p, capsys):

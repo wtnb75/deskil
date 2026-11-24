@@ -32,6 +32,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import usage
+
 try:
     import fcntl
 except ImportError:  # Windows: runs are not locked
@@ -1495,6 +1497,9 @@ class Run:
     # How many times each state's max_visits was hit and the step redirected to its
     # on_exceed. None for a run written before this was recorded (stats replays then).
     exceeded: dict[str, int] | None = None
+    # Claude Code session that started the run, and when; both empty for older runs.
+    session_id: str = ""
+    started_at: str = ""
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -1534,6 +1539,8 @@ def load_run(state_dir: Path, run_id: str) -> Run:
             commands=list(data.get("commands", [])),
             args=dict(data.get("args", {})),
             exceeded=(None if data.get("exceeded") is None else dict(data["exceeded"])),
+            session_id=data.get("session_id", ""),
+            started_at=data.get("started_at", ""),
         )
     except (ValueError, KeyError, TypeError) as e:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
@@ -1946,6 +1953,8 @@ def start_run(
             cwd=str(Path.cwd()),
             args=resolved,
             exceeded={},
+            session_id=os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+            started_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
         )
         try:
             run.definition_hash = defn.hash
@@ -1994,6 +2003,14 @@ def _next_step_locked(
     run = load_run(state_dir, run_id)
     if run.status == "ended":
         raise FlowError(f"run already ended: {run_id}")
+    current_session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if run.session_id and current_session and run.session_id != current_session:
+        print(
+            f"warning: run {run_id} was started in session {run.session_id}; "
+            f"token usage after this point is recorded in session {current_session} "
+            "and is not counted",
+            file=sys.stderr,
+        )
     path = Path(run.definition)
     if not path.is_file():
         raise FlowError(f"definition not found: {path}")
@@ -2021,7 +2038,9 @@ def _next_step_locked(
     entry = {
         "state": run.current,
         "label": label,
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        # Milliseconds, like the session log: the turn that runs `next` is logged
+        # well under a second before this, and must stay in the state being left.
+        "at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
     }
     if gate:
         entry["approval"] = approval.strip()
@@ -2036,7 +2055,76 @@ def _next_step_locked(
         run.status = "ended"
     out = _enter(defn, run, state_dir, cmd)
     save_run(state_dir, run)
+    if run.status == "ended":
+        _save_usage_on_end(run, state_dir)
     return out
+
+
+def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
+    """Usage of a run: computed from the session log, else the saved usage.json.
+
+    With save=True a freshly computed result is written to usage.json; a saved
+    file that was merely read is left alone.
+    """
+    run = load_run(state_dir, run_id)
+    data = usage.compute_usage(
+        run_id=run.run_id,
+        definition=run.definition,
+        definition_hash=run.definition_hash,
+        session_id=run.session_id,
+        started_at=run.started_at,
+        history=run.history,
+        visits=run.visits,
+        status=run.status,
+        current=run.current,
+    )
+    if data is not None:
+        if save:
+            try:
+                usage.save_usage(state_dir, run_id, data)
+            except OSError as e:
+                raise FlowError(
+                    f"cannot save usage for run {run_id}: {e.strerror}"
+                ) from e
+        return data
+    data = usage.load_usage(state_dir, run_id)
+    if data is None:
+        raise FlowError(
+            f"no usage data for run {run_id}: no session log and no saved usage.json"
+        )
+    return data
+
+
+def usage_text(run_ids: list[str], state_dir: Path, save: bool, as_json: bool) -> str:
+    per_run = {rid: load_run_usage(rid, state_dir, save) for rid in run_ids}
+    agg = usage.aggregate(list(per_run.values()))
+    if as_json:
+        out = {**agg, "per_run": per_run}
+        return json.dumps(out, ensure_ascii=False, indent=2) + "\n"
+    return usage.format_table(agg)
+
+
+def _save_usage_on_end(run: Run, state_dir: Path) -> None:
+    """Save the run's per-state token usage; never fail the step that ended the run."""
+    try:
+        data = usage.compute_usage(
+            run_id=run.run_id,
+            definition=run.definition,
+            definition_hash=run.definition_hash,
+            session_id=run.session_id,
+            started_at=run.started_at,
+            history=run.history,
+            visits=run.visits,
+            status=run.status,
+            current=run.current,
+        )
+        if data is not None:
+            usage.save_usage(state_dir, run.run_id, data)
+    except Exception as e:  # noqa: BLE001 - usage is best effort
+        print(
+            f"warning: could not save usage for run {run.run_id}: {e}",
+            file=sys.stderr,
+        )
 
 
 def _scan_runs(state_dir: Path) -> list[tuple[str, Run | None, float]]:
@@ -2380,16 +2468,54 @@ def run_scenarios(defn_path: Path, scenario_path: Path) -> tuple[str, bool]:
 # ---------------------------------------------------------------------------
 
 
-def graph_mermaid(defn_path: Path) -> str:
+_HEAT_FILLS = ("#fff3cd", "#ffd966", "#f4a259", "#e4572e")
+
+
+def _format_tokens(n: float) -> str:
+    """1234 -> '1.2k', 1234567 -> '1.2M'; values under 1000 are plain integers."""
+    if round(n) < 1000:
+        return str(round(n))
+    # Thresholds sit where the one-decimal value would round up to 1000 of the unit.
+    if n < 999_950:
+        return f"{n / 1000:.1f}k"
+    if n < 999_950_000:
+        return f"{n / 1_000_000:.1f}M"
+    return f"{n / 1_000_000_000:.1f}G"
+
+
+def _heat_step(share: float) -> int:
+    """Map a share of the total (0 < share <= 1) to a heat step 1..4."""
+    for step, upper in enumerate((0.25, 0.5, 0.75), start=1):
+        if share < upper:
+            return step
+    return 4
+
+
+def graph_mermaid(defn_path: Path, usage_agg: dict | None = None) -> str:
     """Draw the state transitions of a definition as a Mermaid flowchart.
 
     Node ids are prefixed with `n_` so a state named like a Mermaid keyword (`end`) is safe.
     A goto or a choice is a solid arrow (a choice carries its label); on_exceed is dashed.
+    With `usage_agg` (the result of usage.aggregate) nodes show mean tokens and visits,
+    and are shaded by their share of the total tokens.
     """
     defn = load_definition(defn_path)
+    stats = (usage_agg or {}).get("states", {})
+    grand = sum(
+        s.get("total_mean", 0) for sid, s in stats.items() if sid in defn.states
+    )
     lines = ["flowchart TD", f"  start_node((start)) --> n_{defn.start}"]
+    heat: list[tuple[str, int]] = []
     for st in defn.states.values():
-        shape = f'(["{st.id}"])' if st.end else f'["{st.id}"]'
+        label = st.id
+        s = stats.get(st.id)
+        if s and s.get("total_mean", 0) > 0 and grand > 0:
+            label += (
+                f"<br/>{_format_tokens(s['total_mean'])} tokens"
+                f"<br/>{s['visits_mean']:.1f} visits"
+            )
+            heat.append((st.id, _heat_step(s["total_mean"] / grand)))
+        shape = f'(["{label}"])' if st.end else f'["{label}"]'
         lines.append(f"  n_{st.id}{shape}")
     for st in defn.states.values():
         if st.goto is not None:
@@ -2398,6 +2524,10 @@ def graph_mermaid(defn_path: Path) -> str:
             lines.append(f"  n_{st.id} -->|{c.label}| n_{c.goto}")
         if st.on_exceed is not None:
             lines.append(f"  n_{st.id} -.->|max {st.max_visits}| n_{st.on_exceed}")
+    if usage_agg is not None:
+        for i, fill in enumerate(_HEAT_FILLS, start=1):
+            lines.append(f"  classDef heat{i} fill:{fill},color:#222")
+        lines.extend(f"  class n_{sid} heat{step}" for sid, step in heat)
     return "\n".join(lines) + "\n"
 
 
@@ -3017,6 +3147,17 @@ def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     p.add_argument("run_id")
     p.add_argument("--json", action="store_true", required=True, help="output JSON")
 
+    p = sub.add_parser(
+        "usage",
+        parents=[common],
+        help="aggregate per-state token usage over runs",
+    )
+    p.add_argument("run_ids", nargs="+", metavar="RUN_ID")
+    p.add_argument(
+        "--save", action="store_true", help="write usage.json for computed runs"
+    )
+    p.add_argument("--json", action="store_true", help="output JSON")
+
     sub.add_parser(
         "runs",
         parents=[common],
@@ -3061,9 +3202,17 @@ def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     p.add_argument("scenario", type=Path)
 
     p = sub.add_parser(
-        "graph", help="print the state transitions as a Mermaid flowchart"
+        "graph",
+        parents=[common],
+        help="print the state transitions as a Mermaid flowchart",
     )
     p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--usage",
+        nargs="+",
+        metavar="RUN_ID",
+        help="shade the states by the mean token usage of these runs",
+    )
 
     p = sub.add_parser(
         "export",
@@ -3124,7 +3273,20 @@ def main(
             sys.stdout.write(report)
             return 0 if ok else 1
         if args.command == "graph":
-            sys.stdout.write(graph_mermaid(args.definition))
+            agg = None
+            if args.usage:
+                sd = _resolve_state_dir(args.state_dir)
+                agg = usage.aggregate([load_run_usage(rid, sd) for rid in args.usage])
+                extra = sorted(
+                    set(agg["states"]) - set(load_definition(args.definition).states)
+                )
+                if extra:
+                    print(
+                        f"warning: usage has states that are not in {args.definition}: "
+                        + ", ".join(extra),
+                        file=sys.stderr,
+                    )
+            sys.stdout.write(graph_mermaid(args.definition, agg))
             return 0
         if args.command == "export":
             body, dropped = export_skill(args.definition, args.lang)
@@ -3176,6 +3338,8 @@ def main(
             )
         elif args.command == "stats":
             out = stats_json(args.run_id, state_dir)
+        elif args.command == "usage":
+            out = usage_text(args.run_ids, state_dir, args.save, args.json)
         elif args.command == "runs":
             out = runs_text(state_dir)
         elif args.command == "gc":

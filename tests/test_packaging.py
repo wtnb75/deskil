@@ -21,6 +21,12 @@ def test_pyproject_metadata():
     assert "version" in project["dynamic"]
 
 
+def test_usage_module_is_packaged():
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert "usage" in data["tool"]["setuptools"]["py-modules"]
+    assert (ROOT / "shared" / "flow" / "usage.py").is_file()
+
+
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
 def test_install_and_run_outside_the_repo(tmp_path):
     tools = tmp_path / "tools"
