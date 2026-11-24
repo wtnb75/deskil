@@ -140,6 +140,72 @@ def find_session_log(session_id: str, projects_dir: Path | None = None) -> Path 
     return next(iter(projects_dir.glob(f"*/{session_id}.jsonl")), None)
 
 
+def agent_logs(main_log: Path) -> list[Path]:
+    """Subagent logs next to a main log: <id>/subagents/agent-*.jsonl, sorted."""
+    return sorted((main_log.with_suffix("") / "subagents").glob("agent-*.jsonl"))
+
+
+def agent_span(path: Path) -> tuple[datetime, datetime] | None:
+    """Earliest and latest record timestamp of an agent log (all line types).
+
+    Unlike the turns, this includes user lines (the prompt, tool results), so
+    a one-turn agent still has a real duration. None if no line has a readable
+    timestamp.
+    """
+    first: datetime | None = None
+    last: datetime | None = None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if '"timestamp"' not in line:  # cheap pre-filter before parsing
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = (
+                    _parse_time(entry.get("timestamp"))
+                    if isinstance(entry, dict)
+                    else None
+                )
+                if ts is None:
+                    continue
+                if first is None or ts < first:
+                    first = ts
+                if last is None or ts > last:
+                    last = ts
+    except OSError:
+        return None
+    return (first, last) if first is not None and last is not None else None
+
+
+_NAME_MAX = 60
+
+
+def agent_name(log: Path) -> str:
+    """Display name of a subagent: meta description, else agentType, else file stem.
+
+    Reads agent-<id>.meta.json next to the log; a missing or invalid file just
+    falls back to the stem. Long names are cut to 60 characters with an ellipsis.
+    """
+    meta: object = None
+    try:
+        meta = json.loads(
+            log.with_name(f"{log.stem}.meta.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        meta = None
+    name = ""
+    if isinstance(meta, dict):
+        for key in ("description", "agentType"):
+            value = meta.get(key)
+            if isinstance(value, str) and value.split():
+                name = " ".join(value.split())
+                break
+    name = name or log.stem
+    return name if len(name) <= _NAME_MAX else name[: _NAME_MAX - 1] + "…"
+
+
 def intervals_of(
     history: list[dict], started_at: str, status: str, current: str
 ) -> list[Interval]:
@@ -191,6 +257,180 @@ def split_by_state(turns: list[Turn], intervals: list[Interval]) -> dict[str, Bu
     return buckets
 
 
+def timeline_intervals(
+    history: list[dict], started_at: str, status: str, current: str, now: datetime
+) -> list[dict]:
+    """Per-visit intervals of a run, in visit order.
+
+    Each item has state, visit (1-based count per state), start, end, gate
+    (the history entry has an approval) and open. A running run's current
+    state is open: end is `now`. Visits with an unreadable time are dropped
+    but still count toward the visit number.
+    """
+    result: list[dict] = []
+    seen: dict[str, int] = {}
+    prev = _parse_time(started_at)
+    for h in history:
+        state = h["state"]
+        seen[state] = seen.get(state, 0) + 1
+        at = _parse_time(h.get("at"))
+        if prev is not None and at is not None:
+            result.append(
+                {
+                    "state": state,
+                    "visit": seen[state],
+                    "start": prev,
+                    "end": at,
+                    "gate": bool(h.get("approval")),
+                    "open": False,
+                }
+            )
+        prev = at
+    if status == "running" and prev is not None:
+        result.append(
+            {
+                "state": current,
+                "visit": seen.get(current, 0) + 1,
+                "start": prev,
+                "end": now,
+                "gate": False,
+                "open": True,
+            }
+        )
+    return result
+
+
+def sum_turns(turns: list[Turn]) -> Bucket:
+    """Sum turns into one bucket, counting turns and tool calls too."""
+    bucket = Bucket()
+    for turn in turns:
+        bucket.add(
+            Bucket(
+                input=_count(turn.usage, "input_tokens"),
+                cache_create=_count(turn.usage, "cache_creation_input_tokens"),
+                cache_read=_count(turn.usage, "cache_read_input_tokens"),
+                output=_count(turn.usage, "output_tokens"),
+                turns=1,
+                tool_calls=turn.tool_calls,
+            )
+        )
+    return bucket
+
+
+def _ms(moment: datetime) -> str:
+    return moment.isoformat(timespec="milliseconds")
+
+
+def _in_visit(turns: list[Turn], iv: dict) -> list[Turn]:
+    """Turns of one visit: start <= ts < end (no upper bound while open)."""
+    return [
+        t for t in turns if iv["start"] <= t.ts and (iv["open"] or t.ts < iv["end"])
+    ]
+
+
+def build_timeline(
+    *,
+    history: list[dict],
+    started_at: str,
+    status: str,
+    current: str,
+    turns: list[Turn],
+    agents: dict[str, list[Turn]],
+    now: datetime,
+    spans: dict[str, tuple[datetime, datetime]] | None = None,
+    names: dict[str, str] | None = None,
+) -> list[dict]:
+    """Per-visit timeline with the main session and each subagent's usage.
+
+    `agents` is keyed by agent id (log file stem). `spans` (id -> first and last
+    record time of the log) gives each agent a real duration, clamped to the
+    visit; without it the first and last turn in the visit are used. `names`
+    maps an id to its display name (default: the id).
+    """
+    result = []
+    for iv in timeline_intervals(history, started_at, status, current, now):
+        main = sum_turns(_in_visit(turns, iv))
+        agent_items = []
+        for agent_id, agent_turns in agents.items():
+            inside = _in_visit(agent_turns, iv)
+            if not inside:
+                continue
+            b = sum_turns(inside)
+            start = min(t.ts for t in inside)
+            end = max(t.ts for t in inside)
+            span = (spans or {}).get(agent_id)
+            if span is not None:
+                s, e = max(span[0], iv["start"]), min(span[1], iv["end"])
+                if s <= e:
+                    start, end = s, e
+            agent_items.append(
+                {
+                    "name": (names or {}).get(agent_id, agent_id),
+                    "id": agent_id,
+                    "start": _ms(start),
+                    "end": _ms(end),
+                    "input": b.input,
+                    "cache_create": b.cache_create,
+                    "cache_read": b.cache_read,
+                    "output": b.output,
+                    "turns": b.turns,
+                    "tool_calls": b.tool_calls,
+                }
+            )
+        result.append(
+            {
+                "state": iv["state"],
+                "visit": iv["visit"],
+                "start": _ms(iv["start"]),
+                "end": _ms(iv["end"]),
+                "gate": iv["gate"],
+                "open": iv["open"],
+                "input": main.input,
+                "cache_create": main.cache_create,
+                "cache_read": main.cache_read,
+                "output": main.output,
+                "turns": main.turns,
+                "tool_calls": main.tool_calls,
+                "sub_total": sum(
+                    a["input"] + a["cache_create"] + a["cache_read"] + a["output"]
+                    for a in agent_items
+                ),
+                "agents": agent_items,
+            }
+        )
+    return result
+
+
+def timeline_from_history(
+    *,
+    history: list[dict],
+    started_at: str,
+    status: str,
+    current: str,
+    now: datetime,
+) -> list[dict]:
+    """Timeline without token data, for runs that have no session log."""
+    return [
+        {
+            "state": iv["state"],
+            "visit": iv["visit"],
+            "start": _ms(iv["start"]),
+            "end": _ms(iv["end"]),
+            "gate": iv["gate"],
+            "open": iv["open"],
+            "input": None,
+            "cache_create": None,
+            "cache_read": None,
+            "output": None,
+            "turns": None,
+            "tool_calls": None,
+            "sub_total": None,
+            "agents": [],
+        }
+        for iv in timeline_intervals(history, started_at, status, current, now)
+    ]
+
+
 def compute_usage(
     *,
     run_id: str,
@@ -203,18 +443,32 @@ def compute_usage(
     status: str,
     current: str,
     projects_dir: Path | None = None,
+    now: datetime | None = None,
 ) -> dict | None:
     """Per-state token usage of a run in the shape of usage.json.
 
-    None when the run has no session id or its session log cannot be found.
+    Also holds a per-visit `timeline`. None when the run has no session id or
+    its session log cannot be found.
     """
     log = find_session_log(session_id, projects_dir)
     if log is None:
         return None
-    turns = read_turns(log)
-    # Subagent logs sit next to the main log: <id>/subagents/agent-*.jsonl.
-    for sub_log in sorted((log.with_suffix("") / "subagents").glob("agent-*.jsonl")):
+    main_turns = read_turns(log)
+    sub_logs = agent_logs(log)
+    turns = list(main_turns)
+    for sub_log in sub_logs:
         turns += read_turns(sub_log, sub=True)
+    timeline = build_timeline(
+        history=history,
+        started_at=started_at,
+        status=status,
+        current=current,
+        turns=main_turns,
+        agents={p.stem: read_turns(p, sub=False) for p in sub_logs},
+        spans={p.stem: s for p in sub_logs if (s := agent_span(p)) is not None},
+        names={p.stem: agent_name(p) for p in sub_logs},
+        now=now or datetime.now().astimezone(),
+    )
     buckets = split_by_state(turns, intervals_of(history, started_at, status, current))
     states = {}
     for state in sorted(set(visits) | set(buckets)):
@@ -235,6 +489,7 @@ def compute_usage(
         "definition": definition,
         "definition_hash": definition_hash,
         "states": states,
+        "timeline": timeline,
     }
 
 

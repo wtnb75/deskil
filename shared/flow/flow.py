@@ -32,6 +32,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import timeline as timeline_mod
 import usage
 
 try:
@@ -2060,14 +2061,9 @@ def _next_step_locked(
     return out
 
 
-def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
-    """Usage of a run: computed from the session log, else the saved usage.json.
-
-    With save=True a freshly computed result is written to usage.json; a saved
-    file that was merely read is left alone.
-    """
-    run = load_run(state_dir, run_id)
-    data = usage.compute_usage(
+def _compute_run_usage(run: Run) -> dict | None:
+    """usage.compute_usage for a run; None when its session log is not found."""
+    return usage.compute_usage(
         run_id=run.run_id,
         definition=run.definition,
         definition_hash=run.definition_hash,
@@ -2078,6 +2074,72 @@ def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
         status=run.status,
         current=run.current,
     )
+
+
+def load_run_timeline(run_id: str, state_dir: Path) -> dict:
+    """The view model of one run's timeline.
+
+    Tries the session log, then the saved usage.json, then the history alone
+    (times only, no token data).
+    """
+    run = load_run(state_dir, run_id)
+    data = _compute_run_usage(run)
+    if data is None:
+        data = usage.load_usage(state_dir, run_id)
+    timeline = data.get("timeline") if data else None
+    if timeline is None:
+        timeline = usage.timeline_from_history(
+            history=run.history,
+            started_at=run.started_at,
+            status=run.status,
+            current=run.current,
+            now=datetime.now().astimezone(),
+        )
+    return timeline_mod.build_view(
+        run_id=run.run_id, definition=run.definition, timeline=timeline
+    )
+
+
+def timeline_text(
+    run_ids: list[str],
+    state_dir: Path,
+    output: str,
+    open_browser: bool,
+    as_json: bool,
+) -> str:
+    views = [load_run_timeline(rid, state_dir) for rid in run_ids]
+    if as_json:
+        return (
+            json.dumps({"runs": views}, ensure_ascii=False, indent=2, allow_nan=False)
+            + "\n"
+        )
+    html = timeline_mod.render_html(views)
+    if output == "-":
+        return html
+    # New files are private (0600); a symlink at the path is refused, not followed.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(output, flags, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(html)
+    except OSError as e:
+        raise FlowError(f"cannot write {output}: {e.strerror}") from e
+    if open_browser:
+        import webbrowser
+
+        with contextlib.suppress(Exception):
+            webbrowser.open(Path(output).resolve().as_uri())
+    return f"{output}\n"
+
+
+def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
+    """Usage of a run: computed from the session log, else the saved usage.json.
+
+    With save=True a freshly computed result is written to usage.json; a saved
+    file that was merely read is left alone.
+    """
+    run = load_run(state_dir, run_id)
+    data = _compute_run_usage(run)
     if data is not None:
         if save:
             try:
@@ -2107,17 +2169,7 @@ def usage_text(run_ids: list[str], state_dir: Path, save: bool, as_json: bool) -
 def _save_usage_on_end(run: Run, state_dir: Path) -> None:
     """Save the run's per-state token usage; never fail the step that ended the run."""
     try:
-        data = usage.compute_usage(
-            run_id=run.run_id,
-            definition=run.definition,
-            definition_hash=run.definition_hash,
-            session_id=run.session_id,
-            started_at=run.started_at,
-            history=run.history,
-            visits=run.visits,
-            status=run.status,
-            current=run.current,
-        )
+        data = _compute_run_usage(run)
         if data is not None:
             usage.save_usage(state_dir, run.run_id, data)
     except Exception as e:  # noqa: BLE001 - usage is best effort
@@ -3158,6 +3210,24 @@ def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     )
     p.add_argument("--json", action="store_true", help="output JSON")
 
+    p = sub.add_parser(
+        "timeline",
+        parents=[common],
+        help="render the per-visit timeline of runs as an HTML page",
+    )
+    p.add_argument("run_ids", nargs="+", metavar="RUN_ID")
+    p.add_argument(
+        "-o",
+        "--output",
+        default="flow-timeline.html",
+        metavar="FILE",
+        help="HTML file to write; '-' prints the HTML (default: flow-timeline.html)",
+    )
+    p.add_argument(
+        "--open", action="store_true", help="open the written file in a browser"
+    )
+    p.add_argument("--json", action="store_true", help="output the page data as JSON")
+
     sub.add_parser(
         "runs",
         parents=[common],
@@ -3340,6 +3410,10 @@ def main(
             out = stats_json(args.run_id, state_dir)
         elif args.command == "usage":
             out = usage_text(args.run_ids, state_dir, args.save, args.json)
+        elif args.command == "timeline":
+            out = timeline_text(
+                args.run_ids, state_dir, args.output, args.open, args.json
+            )
         elif args.command == "runs":
             out = runs_text(state_dir)
         elif args.command == "gc":

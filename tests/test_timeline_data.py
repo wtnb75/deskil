@@ -1,0 +1,270 @@
+"""Tests for the per-visit timeline (with per-subagent usage)."""
+
+import json
+from datetime import UTC, datetime, timedelta
+
+import usage
+
+T0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+
+def _at(minutes: float) -> datetime:
+    return T0 + timedelta(minutes=minutes)
+
+
+def _iso(minutes: float) -> str:
+    return _at(minutes).isoformat()
+
+
+def _turn(minutes, i=1, o=1, tools=0, cc=0, cr=0, sub=False):
+    return usage.Turn(
+        ts=_at(minutes),
+        usage={
+            "input_tokens": i,
+            "cache_creation_input_tokens": cc,
+            "cache_read_input_tokens": cr,
+            "output_tokens": o,
+        },
+        tool_calls=tools,
+        sub=sub,
+    )
+
+
+# a(0-10) -> b(10-20, gated) -> a(20-30) ; ended
+HISTORY = [
+    {"state": "a", "at": _iso(10)},
+    {"state": "b", "at": _iso(20), "approval": "ok"},
+    {"state": "a", "at": _iso(30)},
+]
+
+
+def _kw(**over):
+    base = {
+        "history": HISTORY,
+        "started_at": _iso(0),
+        "status": "ended",
+        "current": "end",
+        "now": _at(60),
+    }
+    base.update(over)
+    return base
+
+
+def test_timeline_intervals_marks_gate_and_visit_numbers():
+    rows = usage.timeline_intervals(HISTORY, _iso(0), "ended", "end", _at(60))
+    assert [(r["state"], r["visit"], r["gate"], r["open"]) for r in rows] == [
+        ("a", 1, False, False),
+        ("b", 1, True, False),
+        ("a", 2, False, False),
+    ]
+    assert rows[0]["start"] == _at(0)
+    assert rows[0]["end"] == _at(10)
+
+
+def test_timeline_intervals_open_state_ends_now():
+    rows = usage.timeline_intervals(HISTORY, _iso(0), "running", "b", _at(45))
+    last = rows[-1]
+    assert (last["state"], last["visit"], last["open"]) == ("b", 2, True)
+    assert last["start"] == _at(30)
+    assert last["end"] == _at(45)
+    ended = usage.timeline_intervals(HISTORY, _iso(0), "ended", "b", _at(45))
+    assert len(ended) == 3
+    assert not any(r["open"] for r in ended)
+
+
+def test_timeline_intervals_drops_unreadable_times_and_empty_started_at():
+    rows = usage.timeline_intervals(HISTORY, "", "ended", "end", _at(60))
+    assert [(r["state"], r["start"]) for r in rows] == [
+        ("b", _at(10)),
+        ("a", _at(20)),
+    ]
+
+
+def test_build_timeline_splits_main_turns_per_visit():
+    turns = [
+        _turn(1, i=1, o=2, tools=1),
+        _turn(10, i=10, o=20, tools=2),  # ts == end of visit 1 -> next visit
+        _turn(15, i=100, o=200, cc=5, cr=7, tools=3),
+    ]
+    tl = usage.build_timeline(**_kw(turns=turns, agents={}))
+    a1, b1, a2 = tl
+    assert (a1["input"], a1["output"], a1["turns"], a1["tool_calls"]) == (1, 2, 1, 1)
+    assert (b1["input"], b1["output"], b1["turns"], b1["tool_calls"]) == (
+        110,
+        220,
+        2,
+        5,
+    )
+    assert (b1["cache_create"], b1["cache_read"]) == (5, 7)
+    assert a2["turns"] == 0
+    assert a1["start"] == _at(0).isoformat(timespec="milliseconds")
+    assert a1["end"] == _at(10).isoformat(timespec="milliseconds")
+    assert b1["gate"] is True and a1["open"] is False
+    assert set(a1) == {
+        "state",
+        "visit",
+        "start",
+        "end",
+        "gate",
+        "open",
+        "input",
+        "cache_create",
+        "cache_read",
+        "output",
+        "turns",
+        "tool_calls",
+        "sub_total",
+        "agents",
+    }
+
+
+def test_build_timeline_agent_spanning_two_visits_is_split():
+    agents = {"x": [_turn(5, i=1, o=1), _turn(12, i=2, o=3, tools=1)]}
+    tl = usage.build_timeline(**_kw(turns=[], agents=agents))
+    a1, b1, _a2 = tl
+    assert len(a1["agents"]) == 1 and len(b1["agents"]) == 1
+    assert a1["agents"][0]["name"] == "x"
+    assert a1["agents"][0]["output"] == 1
+    assert b1["agents"][0]["output"] == 3
+    assert b1["agents"][0]["tool_calls"] == 1
+    assert a1["sub_total"] == 2
+    assert b1["sub_total"] == 5
+    assert set(a1["agents"][0]) == {
+        "name",
+        "id",
+        "start",
+        "end",
+        "input",
+        "cache_create",
+        "cache_read",
+        "output",
+        "turns",
+        "tool_calls",
+    }
+
+
+def test_build_timeline_agent_start_end_are_first_and_last_turn_in_visit():
+    agents = {"x": [_turn(3), _turn(7), _turn(9.5), _turn(11)]}
+    tl = usage.build_timeline(**_kw(turns=[], agents=agents))
+    ag = tl[0]["agents"][0]
+    assert ag["start"] == _at(3).isoformat(timespec="milliseconds")
+    assert ag["end"] == _at(9.5).isoformat(timespec="milliseconds")
+    assert ag["turns"] == 3
+
+
+def test_build_timeline_omits_agents_without_turns_in_a_visit():
+    agents = {"x": [_turn(5)], "y": [_turn(15)]}
+    tl = usage.build_timeline(**_kw(turns=[], agents=agents))
+    assert [a["name"] for a in tl[0]["agents"]] == ["x"]
+    assert [a["name"] for a in tl[1]["agents"]] == ["y"]
+    assert tl[2]["agents"] == []
+
+
+def test_build_timeline_open_visit_has_no_upper_bound_for_turns():
+    tl = usage.build_timeline(
+        **_kw(
+            status="running",
+            current="b",
+            now=_at(40),
+            turns=[_turn(50, o=9)],
+            agents={"x": [_turn(55, o=4)]},
+        )
+    )
+    last = tl[-1]
+    assert last["open"] is True
+    assert last["end"] == _at(40).isoformat(timespec="milliseconds")
+    assert last["output"] == 9
+    assert last["agents"][0]["output"] == 4
+
+
+def test_timeline_from_history_has_none_tokens():
+    tl = usage.timeline_from_history(**_kw())
+    assert len(tl) == 3
+    assert tl[1]["gate"] is True
+    assert tl[1]["start"] == _at(10).isoformat(timespec="milliseconds")
+    for row in tl:
+        for key in (
+            "input",
+            "cache_create",
+            "cache_read",
+            "output",
+            "turns",
+            "tool_calls",
+            "sub_total",
+        ):
+            assert row[key] is None
+        assert row["agents"] == []
+
+
+def _log_line(minutes, mid, o):
+    return json.dumps(
+        {
+            "type": "assistant",
+            "timestamp": _iso(minutes),
+            "message": {
+                "id": mid,
+                "content": [],
+                "usage": {"input_tokens": 1, "output_tokens": o},
+            },
+        }
+    )
+
+
+def _write_project(tmp_path, session="s1"):
+    base = tmp_path / "projects" / "proj"
+    subs = base / session / "subagents"
+    subs.mkdir(parents=True)
+    (base / f"{session}.jsonl").write_text(
+        "\n".join([_log_line(5, "m1", 10), _log_line(25, "m2", 20)]) + "\n",
+        encoding="utf-8",
+    )
+    (subs / "agent-a1b2.jsonl").write_text(
+        "\n".join([_log_line(6, "x1", 3), _log_line(26, "x2", 4)]) + "\n",
+        encoding="utf-8",
+    )
+    (subs / "agent-c3d4.jsonl").write_text(
+        _log_line(15, "y1", 7) + "\n", encoding="utf-8"
+    )
+    return tmp_path / "projects"
+
+
+def _compute(tmp_path):
+    return usage.compute_usage(
+        run_id="r1",
+        definition="/d/flow.toml",
+        definition_hash="h",
+        session_id="s1",
+        started_at=_iso(0),
+        history=HISTORY,
+        visits={"a": 2, "b": 1},
+        status="ended",
+        current="a",
+        projects_dir=_write_project(tmp_path),
+        now=_at(40),
+    )
+
+
+def test_compute_usage_includes_timeline(tmp_path):
+    got = _compute(tmp_path)
+    tl = got["timeline"]
+    assert [(v["state"], v["visit"]) for v in tl] == [("a", 1), ("b", 1), ("a", 2)]
+    names = {a["name"] for v in tl for a in v["agents"]}
+    assert names == {"agent-a1b2", "agent-c3d4"}
+    for state, s in got["states"].items():
+        visits = [v for v in tl if v["state"] == state]
+        assert sum(v["sub_total"] for v in visits) == s["sub_total"]
+
+
+def test_compute_usage_states_unchanged(tmp_path):
+    states = _compute(tmp_path)["states"]
+    assert states["a"]["output"] == 30
+    assert states["a"]["sub_total"] == (1 + 3) + (1 + 4)
+    assert states["b"]["output"] == 0
+    assert states["b"]["sub_total"] == 1 + 7
+
+
+def test_compute_usage_timeline_agent_name_is_file_stem(tmp_path):
+    tl = _compute(tmp_path)["timeline"]
+    assert [a["name"] for a in tl[0]["agents"]] == ["agent-a1b2"]
+    assert [a["name"] for a in tl[1]["agents"]] == ["agent-c3d4"]
+    assert [a["name"] for a in tl[2]["agents"]] == ["agent-a1b2"]
