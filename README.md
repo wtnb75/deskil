@@ -77,6 +77,7 @@ deskil flow gc --corrupt                           # delete unreadable run files
 deskil flow stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
 deskil flow usage RUN_ID... [--save] [--json]      # per-state token usage of one or more runs (a table, or JSON)
 deskil flow graph <flow.toml> --usage RUN_ID...    # the same Mermaid flowchart, with mean tokens and visits per state
+deskil flow timeline RUN_ID... [-o FILE] [--open] [--json]  # a self-contained HTML timeline of one or more runs (default flow-timeline.html; `-o -` prints the HTML; --json prints the view data)
 deskil flow export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
 deskil flow start <flow.toml> [--ref main]         # start a run, print the first step
 deskil flow next <run-id> [--result <label>]       # report a result, print the next step
@@ -107,6 +108,15 @@ saves the result to `<state-dir>/<run_id>/usage.json`. Use `usage --save` to wri
 still going or that ended before this feature existed. Claude Code may delete old session logs, so the saved
 file is what survives; `usage` and `graph --usage` fall back to it when the log is gone. `gc` removes
 `usage.json` together with the run.
+
+`timeline` draws each visit to a state as a column on a time axis. The width of a bar is the time spent, and
+its height is tokens per minute, so the area is the number of tokens. Hatched columns are time spent waiting
+for a person (a gate). A dashed box is a step that used subagents: the step's own session is at the bottom
+and each subagent is stacked on top while it ran. Tokens that cannot be known are shown as unknown. The page
+is a single self-contained file (no network access needed), so it also opens offline. `usage.json` now holds
+a `timeline` (per visit, with per-subagent usage), so the page can still be built after the session log is gone.
+The limitations below (B-070 subagent-driven or concurrent runs, B-071 runs continued from another session)
+apply to the timeline as well.
 
 Limitations: usage is read from the session that started the run. A run driven from inside a subagent
 reports 0 main-session turns and tool calls (its tokens appear only as `sub_total`). Subagents that run at
