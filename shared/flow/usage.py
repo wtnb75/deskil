@@ -191,6 +191,164 @@ def split_by_state(turns: list[Turn], intervals: list[Interval]) -> dict[str, Bu
     return buckets
 
 
+def timeline_intervals(
+    history: list[dict], started_at: str, status: str, current: str, now: datetime
+) -> list[dict]:
+    """Per-visit intervals of a run, in visit order.
+
+    Each item has state, visit (1-based count per state), start, end, gate
+    (the history entry has an approval) and open. A running run's current
+    state is open: end is `now`. Visits with an unreadable time are dropped
+    but still count toward the visit number.
+    """
+    result: list[dict] = []
+    seen: dict[str, int] = {}
+    prev = _parse_time(started_at)
+    for h in history:
+        state = h["state"]
+        seen[state] = seen.get(state, 0) + 1
+        at = _parse_time(h.get("at"))
+        if prev is not None and at is not None:
+            result.append(
+                {
+                    "state": state,
+                    "visit": seen[state],
+                    "start": prev,
+                    "end": at,
+                    "gate": bool(h.get("approval")),
+                    "open": False,
+                }
+            )
+        prev = at
+    if status == "running" and prev is not None:
+        result.append(
+            {
+                "state": current,
+                "visit": seen.get(current, 0) + 1,
+                "start": prev,
+                "end": now,
+                "gate": False,
+                "open": True,
+            }
+        )
+    return result
+
+
+def sum_turns(turns: list[Turn]) -> Bucket:
+    """Sum turns into one bucket, counting turns and tool calls too."""
+    bucket = Bucket()
+    for turn in turns:
+        bucket.add(
+            Bucket(
+                input=_count(turn.usage, "input_tokens"),
+                cache_create=_count(turn.usage, "cache_creation_input_tokens"),
+                cache_read=_count(turn.usage, "cache_read_input_tokens"),
+                output=_count(turn.usage, "output_tokens"),
+                turns=1,
+                tool_calls=turn.tool_calls,
+            )
+        )
+    return bucket
+
+
+def _ms(moment: datetime) -> str:
+    return moment.isoformat(timespec="milliseconds")
+
+
+def _in_visit(turns: list[Turn], iv: dict) -> list[Turn]:
+    """Turns of one visit: start <= ts < end (no upper bound while open)."""
+    return [
+        t for t in turns if iv["start"] <= t.ts and (iv["open"] or t.ts < iv["end"])
+    ]
+
+
+def build_timeline(
+    *,
+    history: list[dict],
+    started_at: str,
+    status: str,
+    current: str,
+    turns: list[Turn],
+    agents: dict[str, list[Turn]],
+    now: datetime,
+) -> list[dict]:
+    """Per-visit timeline with the main session and each subagent's usage."""
+    result = []
+    for iv in timeline_intervals(history, started_at, status, current, now):
+        main = sum_turns(_in_visit(turns, iv))
+        agent_items = []
+        for name, agent_turns in agents.items():
+            inside = _in_visit(agent_turns, iv)
+            if not inside:
+                continue
+            b = sum_turns(inside)
+            agent_items.append(
+                {
+                    "name": name,
+                    "start": _ms(min(t.ts for t in inside)),
+                    "end": _ms(max(t.ts for t in inside)),
+                    "input": b.input,
+                    "cache_create": b.cache_create,
+                    "cache_read": b.cache_read,
+                    "output": b.output,
+                    "turns": b.turns,
+                    "tool_calls": b.tool_calls,
+                }
+            )
+        result.append(
+            {
+                "state": iv["state"],
+                "visit": iv["visit"],
+                "start": _ms(iv["start"]),
+                "end": _ms(iv["end"]),
+                "gate": iv["gate"],
+                "open": iv["open"],
+                "input": main.input,
+                "cache_create": main.cache_create,
+                "cache_read": main.cache_read,
+                "output": main.output,
+                "turns": main.turns,
+                "tool_calls": main.tool_calls,
+                "sub_total": sum(
+                    a["input"] + a["cache_create"] + a["cache_read"] + a["output"]
+                    for a in agent_items
+                ),
+                "agents": agent_items,
+            }
+        )
+    return result
+
+
+def timeline_from_history(
+    *,
+    history: list[dict],
+    started_at: str,
+    status: str,
+    current: str,
+    now: datetime,
+) -> list[dict]:
+    """Timeline without token data, for runs that have no session log."""
+    return [
+        {
+            "state": iv["state"],
+            "visit": iv["visit"],
+            "start": _ms(iv["start"]),
+            "end": _ms(iv["end"]),
+            "gate": iv["gate"],
+            "open": iv["open"],
+            "input": None,
+            "cache_create": None,
+            "cache_read": None,
+            "output": None,
+            "turns": None,
+            "tool_calls": None,
+            "sub_total": None,
+            "agents": [],
+        }
+        for iv in timeline_intervals(history, started_at, status, current, now)
+    ]
+
+
 def compute_usage(
     *,
     run_id: str,
