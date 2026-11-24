@@ -140,6 +140,10 @@ def test_format_tokens(flow):
         (999_999, "1.0M"),
         (1_000_000, "1.0M"),
         (999_949, "999.9k"),
+        (999_949_999, "999.9M"),
+        (999_950_000, "1.0G"),
+        (999_999_999, "1.0G"),
+        (1_000_000_000, "1.0G"),
     ],
 )
 def test_format_tokens_unit_boundaries(flow, n, expected):
