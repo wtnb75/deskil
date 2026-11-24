@@ -86,6 +86,21 @@ def test_usage_save_writes_usage_json(flow, tmp_path, monkeypatch, capsys):
     assert saved["states"]["a"]["output"] == 40
 
 
+def test_usage_save_oserror_becomes_flow_error(flow, tmp_path, monkeypatch, capsys):
+    _write_run(tmp_path, "r1")
+    monkeypatch.setattr(usage, "compute_usage", lambda **kw: _usage_data("r1", 40))
+
+    def boom(*a, **kw):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(usage, "save_usage", boom)
+    assert flow.main(["usage", "r1", "--save", "--state-dir", str(tmp_path)]) == 1
+    assert (
+        "error: cannot save usage for run r1: Permission denied"
+        in capsys.readouterr().err
+    )
+
+
 def test_usage_without_save_does_not_write(flow, tmp_path, monkeypatch, capsys):
     _write_run(tmp_path, "r1")
     monkeypatch.setattr(usage, "compute_usage", lambda **kw: _usage_data("r1", 40))

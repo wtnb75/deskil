@@ -2070,7 +2070,12 @@ def load_run_usage(run_id: str, state_dir: Path, save: bool = False) -> dict:
     )
     if data is not None:
         if save:
-            usage.save_usage(state_dir, run_id, data)
+            try:
+                usage.save_usage(state_dir, run_id, data)
+            except OSError as e:
+                raise FlowError(
+                    f"cannot save usage for run {run_id}: {e.strerror}"
+                ) from e
         return data
     data = usage.load_usage(state_dir, run_id)
     if data is None:
@@ -2453,16 +2458,49 @@ def run_scenarios(defn_path: Path, scenario_path: Path) -> tuple[str, bool]:
 # ---------------------------------------------------------------------------
 
 
-def graph_mermaid(defn_path: Path) -> str:
+_HEAT_FILLS = ("#fff3cd", "#ffd966", "#f4a259", "#e4572e")
+
+
+def _format_tokens(n: float) -> str:
+    """1234 -> '1.2k', 1234567 -> '1.2M'; values under 1000 are plain integers."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(round(n))
+
+
+def _heat_step(share: float) -> int:
+    """Map a share of the total (0 < share <= 1) to a heat step 1..4."""
+    for step, upper in enumerate((0.25, 0.5, 0.75), start=1):
+        if share <= upper:
+            return step
+    return 4
+
+
+def graph_mermaid(defn_path: Path, usage_agg: dict | None = None) -> str:
     """Draw the state transitions of a definition as a Mermaid flowchart.
 
     Node ids are prefixed with `n_` so a state named like a Mermaid keyword (`end`) is safe.
     A goto or a choice is a solid arrow (a choice carries its label); on_exceed is dashed.
+    With `usage_agg` (the result of usage.aggregate) nodes show mean tokens and visits,
+    and are shaded by their share of the total tokens.
     """
     defn = load_definition(defn_path)
+    stats = (usage_agg or {}).get("states", {})
+    grand = sum(s.get("total_mean", 0) for s in stats.values())
     lines = ["flowchart TD", f"  start_node((start)) --> n_{defn.start}"]
+    heat: list[tuple[str, int]] = []
     for st in defn.states.values():
-        shape = f'(["{st.id}"])' if st.end else f'["{st.id}"]'
+        label = st.id
+        s = stats.get(st.id)
+        if s and s.get("total_mean", 0) > 0 and grand > 0:
+            label += (
+                f"<br/>{_format_tokens(s['total_mean'])} tokens"
+                f"<br/>{s['visits_mean']:.1f} visits"
+            )
+            heat.append((st.id, _heat_step(s["total_mean"] / grand)))
+        shape = f'(["{label}"])' if st.end else f'["{label}"]'
         lines.append(f"  n_{st.id}{shape}")
     for st in defn.states.values():
         if st.goto is not None:
@@ -2471,6 +2509,10 @@ def graph_mermaid(defn_path: Path) -> str:
             lines.append(f"  n_{st.id} -->|{c.label}| n_{c.goto}")
         if st.on_exceed is not None:
             lines.append(f"  n_{st.id} -.->|max {st.max_visits}| n_{st.on_exceed}")
+    if usage_agg is not None:
+        for i, fill in enumerate(_HEAT_FILLS, start=1):
+            lines.append(f"  classDef heat{i} fill:{fill},color:#222")
+        lines.extend(f"  class n_{sid} heat{step}" for sid, step in heat)
     return "\n".join(lines) + "\n"
 
 
@@ -3145,9 +3187,17 @@ def _build_parser(prog: str = "flow") -> argparse.ArgumentParser:
     p.add_argument("scenario", type=Path)
 
     p = sub.add_parser(
-        "graph", help="print the state transitions as a Mermaid flowchart"
+        "graph",
+        parents=[common],
+        help="print the state transitions as a Mermaid flowchart",
     )
     p.add_argument("definition", type=Path)
+    p.add_argument(
+        "--usage",
+        nargs="+",
+        metavar="RUN_ID",
+        help="shade the states by the mean token usage of these runs",
+    )
 
     p = sub.add_parser(
         "export",
@@ -3208,7 +3258,11 @@ def main(
             sys.stdout.write(report)
             return 0 if ok else 1
         if args.command == "graph":
-            sys.stdout.write(graph_mermaid(args.definition))
+            agg = None
+            if args.usage:
+                sd = _resolve_state_dir(args.state_dir)
+                agg = usage.aggregate([load_run_usage(rid, sd) for rid in args.usage])
+            sys.stdout.write(graph_mermaid(args.definition, agg))
             return 0
         if args.command == "export":
             body, dropped = export_skill(args.definition, args.lang)
