@@ -131,6 +131,7 @@ def test_build_timeline_agent_spanning_two_visits_is_split():
     assert b1["sub_total"] == 5
     assert set(a1["agents"][0]) == {
         "name",
+        "id",
         "start",
         "end",
         "input",

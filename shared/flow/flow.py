@@ -2109,12 +2109,19 @@ def timeline_text(
 ) -> str:
     views = [load_run_timeline(rid, state_dir) for rid in run_ids]
     if as_json:
-        return json.dumps({"runs": views}, ensure_ascii=False, indent=2) + "\n"
+        return (
+            json.dumps({"runs": views}, ensure_ascii=False, indent=2, allow_nan=False)
+            + "\n"
+        )
     html = timeline_mod.render_html(views)
     if output == "-":
         return html
+    # New files are private (0600); a symlink at the path is refused, not followed.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
     try:
-        Path(output).write_text(html, encoding="utf-8")
+        fd = os.open(output, flags, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(html)
     except OSError as e:
         raise FlowError(f"cannot write {output}: {e.strerror}") from e
     if open_browser:

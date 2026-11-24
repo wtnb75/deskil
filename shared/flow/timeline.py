@@ -4,39 +4,55 @@ Standard library only; the page has no external references.
 """
 
 import json
+import math
 from datetime import datetime
 
 
 def _seconds(start: object, end: object) -> float:
-    """Seconds from start to end (ISO strings); 0 when either is unreadable."""
+    """Seconds from start to end (ISO strings); 0 when unreadable or not finite."""
     try:
         a = datetime.fromisoformat(str(start))
         b = datetime.fromisoformat(str(end))
-        return (b - a).total_seconds()
-    except (TypeError, ValueError):
+        sec = (b - a).total_seconds()
+    except (TypeError, ValueError, OverflowError):
         return 0.0
+    return sec if math.isfinite(sec) else 0.0
+
+
+def _number(value: object) -> bool:
+    return isinstance(value, int | float) and math.isfinite(value)
 
 
 def _tokens(item: dict) -> tuple[int, bool]:
-    """Sum of the four token fields and whether all of them are known."""
+    """Sum of the four token fields and whether all of them are known.
+
+    A value that is missing or not a finite number makes the item unknown.
+    """
     keys = ("input", "cache_create", "cache_read", "output")
     values = [item.get(k) for k in keys]
-    known = all(isinstance(v, int | float) for v in values)
-    return sum(v for v in values if isinstance(v, int | float)), known
+    return sum(v for v in values if _number(v)), all(_number(v) for v in values)
 
 
-def _subs(visit: dict, sec: float) -> list[list]:
+def _subs(visit: dict, sec: float) -> tuple[list[list], bool]:
+    """Subagents of a visit as [name, offset, seconds, tokens], and whether all are known.
+
+    The 1 s minimum duration only keeps a sliver visible; the page never uses
+    it as a rate for the height scale.
+    """
     if sec <= 0:
-        return []
+        return [], True
     out = []
+    known = True
     for agent in visit.get("agents") or []:
         off = max(0.0, _seconds(visit.get("start"), agent.get("start")))
         dur = max(1.0, _seconds(agent.get("start"), agent.get("end")))
         dur = min(dur, sec)
         if off + dur > sec:
             off = max(0.0, sec - dur)
-        out.append([agent.get("name", ""), off, dur, _tokens(agent)[0]])
-    return out
+        tok, agent_known = _tokens(agent)
+        known = known and agent_known
+        out.append([agent.get("name", ""), off, dur, tok])
+    return out, known
 
 
 def build_view(*, run_id: str, definition: str, timeline: list[dict]) -> dict:
@@ -58,7 +74,8 @@ def build_view(*, run_id: str, definition: str, timeline: list[dict]) -> dict:
         tok, known = _tokens(v)
         if not known:
             tok = 0
-        subs = _subs(v, sec)
+        subs, subs_known = _subs(v, sec)
+        known = known and subs_known
         tokens += tok + sum(s[3] for s in subs)
         total += sec
         gate = bool(v.get("gate"))
@@ -72,6 +89,7 @@ def build_view(*, run_id: str, definition: str, timeline: list[dict]) -> dict:
                 "tok": tok,
                 "gate": gate,
                 "known": known,
+                "open": bool(v.get("open")),
                 "subs": subs,
             }
         )
@@ -94,7 +112,7 @@ def build_view(*, run_id: str, definition: str, timeline: list[dict]) -> dict:
 
 
 def _embed(obj: object) -> str:
-    text = json.dumps(obj, ensure_ascii=False)
+    text = json.dumps(obj, ensure_ascii=False, allow_nan=False)
     for ch, esc in (
         ("<", "\\u003c"),
         (">", "\\u003e"),
@@ -169,6 +187,8 @@ _TEMPLATE = r"""<!doctype html>
   .seg.work { opacity: .92; }
   .seg.work:hover, .seg.work:focus-visible { opacity: 1; filter: brightness(1.08); }
   .seg.unk { height: 30%; border: 1px dotted var(--muted); border-bottom: 0; border-radius: 0; }
+  .seg.open, .box.open { border-right: 2px dashed var(--fg); }
+  .cap { position: absolute; top: -12px; left: 0; right: 0; text-align: center; font-size: 9px; line-height: 10px; color: var(--fg); pointer-events: none; }
   .seg.wait { height: 100%; background: repeating-linear-gradient(135deg, var(--wait-bg) 0 5px, transparent 5px 10px); border-left: 1px solid var(--wait); border-right: 1px solid var(--wait); border-radius: 0; }
   .seg.wait .brk { position: absolute; inset: 0; display: grid; place-items: center; font: 500 11px var(--mono); color: var(--muted); }
   .seg:focus-visible, .box:focus-visible { outline: 2px solid var(--focus); }
@@ -211,27 +231,50 @@ _TEMPLATE = r"""<!doctype html>
 
   <div id="runs"></div>
 
-  <p class="note">Hover or focus a bar for its numbers. Read the shape first: tall bars are token-heavy work, wide hatched columns are waiting, and wide short bars are time spent without many tokens (for example a slow command). A dashed box is a step that used subagents: the step's own session is at the bottom and each subagent is stacked on top while it ran, so a taller box means more work at the same moment. A dotted outline is a step whose token usage is unknown.</p>
+  <p class="note">Hover or focus a bar for its numbers. Read the shape first: tall bars are token-heavy work, wide hatched columns are waiting, and wide short bars are time spent without many tokens (for example a slow command). A dashed box is a step that used subagents: the step's own session is at the bottom and each subagent is stacked on top while it ran, so a taller box means more work at the same moment. A dotted outline is a step whose token usage is unknown. A step that is still running has a dashed right edge. A ▲ marks a bar cut at the top of the lane: its rate is above the scale, which ignores steps and subagents shorter than 5 seconds; the tooltip and the table show the real rate.</p>
 </main>
 <div id="tip" role="tooltip"></div>
 
 <script type="application/json" id="data">__DATA__</script>
 <script>
-  // Visit shape inside the page: [state, seconds, tokens in the step's own session, isGate, subagents, known].
+  // Visit shape inside the page: [state, seconds, tokens in the step's own session, isGate, subagents, known, open].
   // A subagent is [name, offset seconds, seconds, tokens].
   const DATA = JSON.parse(document.getElementById("data").textContent);
   const RUNS = (DATA.runs || []).map(r => ({
     id: r.id, note: r.note, tokensState: r.tokens_state || "known",
-    visits: (r.visits || []).map(v => [v.state, v.sec, v.tok, v.gate ? 1 : 0, v.subs || [], v.known !== false])
+    visits: (r.visits || []).map(v => [v.state, v.sec, v.tok, v.gate ? 1 : 0, v.subs || [], v.known !== false, !!v.open])
   }));
   const PALETTE = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)"];
   const STATES = [];
   RUNS.forEach(r => r.visits.forEach(v => { if (!v[3] && !STATES.includes(v[0])) STATES.push(v[0]); }));
   const LAYER_OPACITY = [0.5, 0.64, 0.78, 0.9];
   const WAIT_CAP = 120; // seconds of width a wait gets when shortened
+  const MIN_SEC = 5;    // steps and subagents shorter than this do not set the height scale
+  const TICK_STEPS = [30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 21600, 43200, 86400, 172800, 604800];
 
-  const fmtDur = s => s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.floor(s/60)}m${String(Math.round(s%60)).padStart(2,"0")}s`
-                    : `${Math.floor(s/3600)}h${String(Math.round((s%3600)/60)).padStart(2,"0")}m`;
+  // Round to whole seconds first, then split, so the parts never carry over (3599.6 -> 1h00m, not 0h60m).
+  function fmtDur(s) {
+    const t = Math.round(s), two = n => String(n).padStart(2, "0");
+    if (t < 60) return `${t}s`;
+    if (t < 3600) return `${Math.floor(t / 60)}m${two(t % 60)}s`;
+    const m = Math.round(t / 60);
+    if (m < 1440) return `${Math.floor(m / 60)}h${two(m % 60)}m`;
+    const h = Math.round(t / 3600);
+    return `${Math.floor(h / 24)}d${two(h % 24)}h`;
+  }
+  // Smallest tick step that gives at most 8 ticks over the span.
+  function tickStep(span) {
+    const step = TICK_STEPS.find(s => span / s <= 8);
+    if (step) return step;
+    const last = TICK_STEPS[TICK_STEPS.length - 1];
+    return last * Math.ceil(span / last / 8);
+  }
+  // Bar height in percent of the lane for a rate; capped at 100% and flagged when cut.
+  function clipRate(rate, maxRate) {
+    if (!(maxRate > 0) || !(rate > 0)) return { h: 4, clipped: false };
+    const raw = 100 * rate / maxRate * 0.96;
+    return raw > 100 ? { h: 100, clipped: true } : { h: Math.max(4, raw), clipped: false };
+  }
   const fmtTok = n => n < 1000 ? String(n) : n < 999950 ? `${(n/1000).toFixed(1)}k` : `${(n/1e6).toFixed(1)}M`;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const colorOf = state => { const i = STATES.indexOf(state); return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]; };
@@ -257,8 +300,8 @@ _TEMPLATE = r"""<!doctype html>
     v.subs.forEach(([, off, dur]) => { bounds.add(off); bounds.add(Math.min(off + dur, v.sec)); });
     const xs = [...bounds].sort((a, b) => a - b), out = [];
     for (let i = 0; i < xs.length - 1; i++) {
-      const m = (xs[i] + xs[i + 1]) / 2, layers = [{ main: true, rate: v.rate }];
-      v.subs.forEach(([, off, dur, tok], k) => { if (off <= m && m < off + dur) layers.push({ k, rate: perMin(tok, dur) }); });
+      const m = (xs[i] + xs[i + 1]) / 2, layers = [{ main: true, rate: v.rate, ok: true }];
+      v.subs.forEach(([, off, dur, tok], k) => { if (off <= m && m < off + dur) layers.push({ k, rate: perMin(tok, dur), ok: dur >= MIN_SEC }); });
       out.push({ a: xs[i], b: xs[i + 1], layers, total: layers.reduce((s, l) => s + l.rate, 0) });
     }
     return out;
@@ -267,14 +310,17 @@ _TEMPLATE = r"""<!doctype html>
   function enrich(run) {
     let t = 0; const seen = {}, count = {};
     run.visits.forEach(v => count[v[0]] = (count[v[0]] || 0) + 1);
-    return run.visits.map(([state, sec, tok, gate, subs, known]) => {
+    return run.visits.map(([state, sec, tok, gate, subs, known, open]) => {
       seen[state] = (seen[state] || 0) + 1;
-      const o = { state, sec, tok, gate: !!gate, known, start: t, label: count[state] > 1 ? `${state} #${seen[state]}` : state,
+      const o = { state, sec, tok, gate: !!gate, known, open: !!open, start: t, label: count[state] > 1 ? `${state} #${seen[state]}` : state,
                   rate: gate || !known ? 0 : perMin(tok, sec), subs: subs || [] };
       o.subTok = o.subs.reduce((a, s) => a + s[3], 0); o.allTok = o.tok + o.subTok;
       o.allRate = gate || !known ? 0 : perMin(o.allTok, sec);
       o.stack = known && !gate && o.subs.length && sec > 0 ? stackOf(o) : null;
       o.peak = o.stack ? Math.max(...o.stack.map(s => s.total)) : o.rate;
+      // The height scale ignores short steps and short subagent layers (their rate is tokens over a few seconds).
+      o.qual = sec >= MIN_SEC;
+      o.qpeak = o.stack ? Math.max(...o.stack.map(s => s.layers.reduce((a, l) => a + (l.ok ? l.rate : 0), 0))) : o.rate;
       t += sec; return o;
     });
   }
@@ -292,8 +338,10 @@ _TEMPLATE = r"""<!doctype html>
       r.waitSec = r.vs.filter(v => v.gate).reduce((a, v) => a + v.sec, 0);
     });
     const maxSpan = Math.max(0, ...runs.map(r => r.span)) || 1;
-    const maxRate = Math.max(0, ...runs.flatMap(r => r.vs.map(v => v.peak))) || 1;
-    const hp = rate => Math.max(4, 100 * rate / maxRate * 0.96); // height in percent of the lane
+    const all = runs.flatMap(r => r.vs), qualified = all.filter(v => v.qual);
+    const maxRate = (qualified.length ? Math.max(0, ...qualified.map(v => v.qpeak)) : Math.max(0, ...all.map(v => v.peak))) || 1;
+    const cap = clipped => clipped ? `<span class="cap" aria-hidden="true">▲</span>` : "";
+    const cutNote = clipped => clipped ? `<br>▲ bar cut at the top of the lane` : "";
 
     runs.forEach(r => {
       const el = document.createElement("section"); el.className = "run";
@@ -305,40 +353,45 @@ _TEMPLATE = r"""<!doctype html>
       const tipFor = [];
       const segs = r.vs.map((v, i) => {
         const left = 100 * v.x / maxSpan, width = 100 * v.dw / maxSpan;
+        const run = v.open ? " (running)" : "", oc = v.open ? " open" : "";
         if (v.gate) {
           const cut = compress && v.sec > WAIT_CAP;
-          tipFor[i] = `<b>${esc(v.label)}</b><br>waiting for a person<br><span class="m">${fmtDur(v.sec)}</span>`;
+          tipFor[i] = `<b>${esc(v.label)}</b><br>waiting for a person<br><span class="m">${fmtDur(v.sec)}${v.allTok > 0 ? `<br>${fmtTok(v.allTok)} tokens in this step` : ""}</span>`;
           return `<div class="seg wait" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%" aria-label="${esc(v.label)}, waiting ${fmtDur(v.sec)}">${cut ? `<span class="brk">≈ ${fmtDur(v.sec)}</span>` : ""}</div>`;
         }
         if (!v.known) {
-          tipFor[i] = `<b>${esc(v.label)}</b><br><span class="m">${fmtDur(v.sec)} · tokens unknown</span>`;
-          return `<div class="seg unk" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, tokens unknown"></div>`;
+          tipFor[i] = `<b>${esc(v.label)}</b>${run}<br><span class="m">${fmtDur(v.sec)} · tokens unknown</span>`;
+          return `<div class="seg unk${oc}" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, tokens unknown"></div>`;
         }
         if (v.stack) {
           // One dashed box for the whole step; its height is the busiest moment, layers are placed in percent of the box.
-          const peak = v.peak || 1;
+          const peak = v.peak || 1, hb = clipRate(peak, maxRate);
+          // When the box is cut, layers are measured against the rate the full lane height stands for.
+          const den = hb.clipped ? maxRate * 100 / 96 : peak;
           const slices = v.stack.map(s => {
             let base = 0;
             return s.layers.map(l => {
-              const bottom = 100 * base / peak, h = 100 * l.rate / peak; base += l.rate;
+              const bottom = 100 * base / den, h = 100 * l.rate / den; base += l.rate;
+              if (!(bottom < 100)) return "";
               const op = l.main ? 0.92 : LAYER_OPACITY[l.k % LAYER_OPACITY.length];
-              return `<div class="layer" data-i="${i}" data-k="${l.main ? "m" : l.k}" style="left:${100 * s.a / v.sec}%;width:${100 * (s.b - s.a) / v.sec}%;bottom:${bottom}%;height:${h}%;background:${colorOf(v.state)};opacity:${op}"></div>`;
+              return `<div class="layer" data-i="${i}" data-k="${l.main ? "m" : l.k}" style="left:${100 * s.a / v.sec}%;width:${100 * (s.b - s.a) / v.sec}%;bottom:${bottom}%;height:${Math.min(h, 100 - bottom)}%;background:${colorOf(v.state)};opacity:${op}"></div>`;
             }).join("");
           }).join("");
-          tipFor[i] = `<b>${esc(v.label)}</b> (whole step)<br><span class="m">${fmtDur(v.sec)} · ${fmtTok(v.allTok)} tokens<br>${fmtTok(v.tok)} in the step's own session<br>${fmtTok(v.subTok)} in ${v.subs.length} subagents</span>`;
-          return `<div class="box" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%;height:${hp(peak)}%" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, ${fmtTok(v.allTok)} tokens including ${v.subs.length} subagents">${slices}</div>`;
+          tipFor[i] = `<b>${esc(v.label)}</b> (whole step)${run}<br><span class="m">${fmtDur(v.sec)} · ${fmtTok(v.allTok)} tokens<br>${fmtTok(v.tok)} in the step's own session<br>${fmtTok(v.subTok)} in ${v.subs.length} subagents${hb.clipped ? `<br>${fmtTok(Math.round(peak))}/min at the busiest moment` : ""}</span>${cutNote(hb.clipped)}`;
+          return `<div class="box${oc}" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%;height:${hb.h}%" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, ${fmtTok(v.allTok)} tokens including ${v.subs.length} subagents">${slices}${cap(hb.clipped)}</div>`;
         }
-        tipFor[i] = `<b>${esc(v.label)}</b><br><span class="m">${fmtDur(v.sec)} · ${fmtTok(v.tok)} tokens<br>${fmtTok(Math.round(v.rate))}/min</span>`;
-        return `<div class="seg work" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%;height:${hp(v.rate)}%;background:${colorOf(v.state)}" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, ${fmtTok(v.tok)} tokens"></div>`;
+        const hb = clipRate(v.rate, maxRate);
+        tipFor[i] = `<b>${esc(v.label)}</b>${run}<br><span class="m">${fmtDur(v.sec)} · ${fmtTok(v.tok)} tokens<br>${fmtTok(Math.round(v.rate))}/min</span>${cutNote(hb.clipped)}`;
+        return `<div class="seg work${oc}" data-i="${i}" tabindex="0" style="left:${left}%;width:${width}%;height:${hb.h}%;background:${colorOf(v.state)}" aria-label="${esc(v.label)}, ${fmtDur(v.sec)}, ${fmtTok(v.tok)} tokens">${cap(hb.clipped)}</div>`;
       }).join("");
       let axis = "";
       if (!compress) {
-        const steps = [30, 60, 120, 300, 600, 900, 1800, 3600], step = steps.find(s => maxSpan / s <= 8) || 3600;
+        const step = tickStep(maxSpan);
         for (let s = 0; s <= r.span; s += step) axis += `<i style="left:${100 * s / maxSpan}%">${s === 0 ? "0" : fmtDur(s)}</i>`;
       } else axis = `<i style="left:0">start</i>`;
       const rows = r.vs.map(v => {
-        const main = `<tr class="${v.gate ? "is-wait" : ""}"><td><span class="sw ${v.gate ? "wait" : ""}" style="${v.gate ? "" : `background:${colorOf(v.state)}`}"></span>${esc(v.label)}${v.gate ? " (waiting)" : ""}</td>
-          <td>${fmtDur(v.sec)}</td><td>${v.gate ? "–" : v.known ? fmtTok(v.allTok) : "unknown"}</td><td>${v.gate || !v.known ? "–" : fmtTok(Math.round(v.allRate)) + "/min"}</td></tr>`;
+        const main = `<tr class="${v.gate ? "is-wait" : ""}"><td><span class="sw ${v.gate ? "wait" : ""}" style="${v.gate ? "" : `background:${colorOf(v.state)}`}"></span>${esc(v.label)}${v.gate ? " (waiting)" : ""}${v.open ? " (running)" : ""}</td>
+          <td>${fmtDur(v.sec)}</td><td>${v.gate ? (v.allTok > 0 ? fmtTok(v.allTok) : "–") : v.known ? fmtTok(v.allTok) : "unknown"}</td><td>${v.gate || !v.known ? "–" : fmtTok(Math.round(v.allRate)) + "/min"}</td></tr>`;
         const subs = v.subs.map(([name, off, dur, tok]) => `<tr class="is-agent"><td>${esc(name)}</td><td>${fmtDur(dur)}</td><td>${fmtTok(tok)}</td><td>${fmtTok(Math.round(perMin(tok, dur)))}/min</td></tr>`).join("");
         return main + subs;
       }).join("");

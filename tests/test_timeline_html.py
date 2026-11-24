@@ -163,3 +163,58 @@ def test_render_html_is_a_complete_document():
 def test_render_html_handles_no_runs():
     html = timeline.render_html([])
     assert _extract(html) == {"runs": []}
+
+
+def test_build_view_carries_open_flag():
+    running = visit("a", 5, 9)
+    running["open"] = True
+    view = build([visit("a", 0, 5), running])
+    assert [v["open"] for v in view["visits"]] == [False, True]
+    legacy = visit("a", 0, 5)
+    del legacy["open"]
+    assert build([legacy])["visits"][0]["open"] is False
+
+
+def test_build_view_gate_visit_keeps_its_tokens_and_subs():
+    view = build([visit("g", 0, 20, gate=True, tok=30, agents=[agent("a", 0, 10, 5)])])
+    v = view["visits"][0]
+    assert (v["gate"], v["tok"], v["subs"]) == (True, 30, [["a", 0.0, 10.0, 5]])
+    assert view["tokens"] == 35
+    assert view["wait_sec"] == 20
+
+
+def test_build_view_uses_agent_names_for_subs():
+    view = build([visit("r", 0, 20, agents=[agent("Review", 0, 5, 1)] * 2)])
+    assert [s[0] for s in view["visits"][0]["subs"]] == ["Review", "Review"]
+
+
+def test_build_view_never_emits_non_finite_numbers():
+    nan, inf = float("nan"), float("inf")
+    bad = visit("a", 0, 10, tok=0)
+    bad["input"] = nan
+    worse = visit("b", 10, 20, agents=[agent("x", 10, 15, 1)])
+    worse["agents"][0]["output"] = inf
+    view = build([bad, worse])
+    assert view["visits"][0]["known"] is False and view["visits"][0]["tok"] == 0
+    assert view["visits"][1]["known"] is False
+    assert view["tokens"] == view["tokens"]  # not NaN
+    text = json.dumps(view, allow_nan=False)
+    assert "NaN" not in text and "Infinity" not in text
+    timeline.render_html([view])
+
+
+def test_render_html_refuses_non_finite_numbers():
+    import pytest
+
+    view = build([visit("a", 0, 5)])
+    view["total_sec"] = float("nan")
+    with pytest.raises(ValueError):
+        timeline.render_html([view])
+
+
+def test_page_script_has_the_testable_helpers_and_new_text():
+    html = timeline.render_html([])
+    for name in ("function clipRate(", "function fmtDur(", "function tickStep("):
+        assert name in html
+    assert "tokens in this step" in html  # gate tooltip shows its own tokens
+    assert "running" in html

@@ -115,6 +115,8 @@ for a person (a gate). A dashed box is a step that used subagents: the step's ow
 and each subagent is stacked on top while it ran. Tokens that cannot be known are shown as unknown. The page
 is a single self-contained file (no network access needed), so it also opens offline. `usage.json` now holds
 a `timeline` (per visit, with per-subagent usage), so the page can still be built after the session log is gone.
+`timeline --json` prints the view data to stdout and ignores `-o`, and the per-run data of `usage --json`
+now includes the `timeline` too.
 The limitations below (B-070 subagent-driven or concurrent runs, B-071 runs continued from another session)
 apply to the timeline as well.
 

@@ -1,6 +1,8 @@
 """Tests for the `timeline` subcommand."""
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -152,3 +154,43 @@ def test_timeline_open_flag_calls_webbrowser_and_ignores_failure(
     args = ["timeline", "r1", "--open", "-o", str(out), "--state-dir", str(tmp_path)]
     assert flow.main(args) == 0
     assert seen == [out.resolve().as_uri()]
+
+
+def test_timeline_output_file_is_private_and_replaces_content(flow, tmp_path):
+    _setup(tmp_path, ("r1",))
+    out = tmp_path / "out.html"
+    out.write_text("old content that is much longer than nothing" * 500)
+    out.chmod(0o644)
+    args = ["timeline", "r1", "-o", str(out), "--state-dir", str(tmp_path)]
+    assert flow.main(args) == 0
+    assert out.read_text("utf-8").startswith("<!doctype html>")
+    assert "old content" not in out.read_text("utf-8")
+    fresh = tmp_path / "fresh.html"
+    args = ["timeline", "r1", "-o", str(fresh), "--state-dir", str(tmp_path)]
+    assert flow.main(args) == 0
+    assert stat.S_IMODE(fresh.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="needs O_NOFOLLOW")
+def test_timeline_refuses_a_symlink_at_the_output_path(flow, tmp_path, capsys):
+    _setup(tmp_path, ("r1",))
+    target = tmp_path / "target.txt"
+    target.write_text("keep")
+    link = tmp_path / "link.html"
+    link.symlink_to(target)
+    args = ["timeline", "r1", "-o", str(link), "--state-dir", str(tmp_path)]
+    assert flow.main(args) == 1
+    assert capsys.readouterr().err.startswith("error: cannot write")
+    assert target.read_text() == "keep"
+
+
+def test_timeline_json_never_contains_non_finite_numbers(
+    flow, tmp_path, monkeypatch, capsys
+):
+    _setup(tmp_path, ("r1",))
+    data = _usage_data("r1", float("nan"))
+    monkeypatch.setattr(usage, "compute_usage", lambda **kw: data)
+    assert flow.main(["timeline", "r1", "--json", "--state-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "NaN" not in out
+    assert json.loads(out)["runs"][0]["visits"][0]["known"] is False

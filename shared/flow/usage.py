@@ -145,6 +145,67 @@ def agent_logs(main_log: Path) -> list[Path]:
     return sorted((main_log.with_suffix("") / "subagents").glob("agent-*.jsonl"))
 
 
+def agent_span(path: Path) -> tuple[datetime, datetime] | None:
+    """Earliest and latest record timestamp of an agent log (all line types).
+
+    Unlike the turns, this includes user lines (the prompt, tool results), so
+    a one-turn agent still has a real duration. None if no line has a readable
+    timestamp.
+    """
+    first: datetime | None = None
+    last: datetime | None = None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if '"timestamp"' not in line:  # cheap pre-filter before parsing
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = (
+                    _parse_time(entry.get("timestamp"))
+                    if isinstance(entry, dict)
+                    else None
+                )
+                if ts is None:
+                    continue
+                if first is None or ts < first:
+                    first = ts
+                if last is None or ts > last:
+                    last = ts
+    except OSError:
+        return None
+    return (first, last) if first is not None and last is not None else None
+
+
+_NAME_MAX = 60
+
+
+def agent_name(log: Path) -> str:
+    """Display name of a subagent: meta description, else agentType, else file stem.
+
+    Reads agent-<id>.meta.json next to the log; a missing or invalid file just
+    falls back to the stem. Long names are cut to 60 characters with an ellipsis.
+    """
+    meta: object = None
+    try:
+        meta = json.loads(
+            log.with_name(f"{log.stem}.meta.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        meta = None
+    name = ""
+    if isinstance(meta, dict):
+        for key in ("description", "agentType"):
+            value = meta.get(key)
+            if isinstance(value, str) and value.split():
+                name = " ".join(value.split())
+                break
+    name = name or log.stem
+    return name if len(name) <= _NAME_MAX else name[: _NAME_MAX - 1] + "…"
+
+
 def intervals_of(
     history: list[dict], started_at: str, status: str, current: str
 ) -> list[Interval]:
@@ -276,22 +337,38 @@ def build_timeline(
     turns: list[Turn],
     agents: dict[str, list[Turn]],
     now: datetime,
+    spans: dict[str, tuple[datetime, datetime]] | None = None,
+    names: dict[str, str] | None = None,
 ) -> list[dict]:
-    """Per-visit timeline with the main session and each subagent's usage."""
+    """Per-visit timeline with the main session and each subagent's usage.
+
+    `agents` is keyed by agent id (log file stem). `spans` (id -> first and last
+    record time of the log) gives each agent a real duration, clamped to the
+    visit; without it the first and last turn in the visit are used. `names`
+    maps an id to its display name (default: the id).
+    """
     result = []
     for iv in timeline_intervals(history, started_at, status, current, now):
         main = sum_turns(_in_visit(turns, iv))
         agent_items = []
-        for name, agent_turns in agents.items():
+        for agent_id, agent_turns in agents.items():
             inside = _in_visit(agent_turns, iv)
             if not inside:
                 continue
             b = sum_turns(inside)
+            start = min(t.ts for t in inside)
+            end = max(t.ts for t in inside)
+            span = (spans or {}).get(agent_id)
+            if span is not None:
+                s, e = max(span[0], iv["start"]), min(span[1], iv["end"])
+                if s <= e:
+                    start, end = s, e
             agent_items.append(
                 {
-                    "name": name,
-                    "start": _ms(min(t.ts for t in inside)),
-                    "end": _ms(max(t.ts for t in inside)),
+                    "name": (names or {}).get(agent_id, agent_id),
+                    "id": agent_id,
+                    "start": _ms(start),
+                    "end": _ms(end),
                     "input": b.input,
                     "cache_create": b.cache_create,
                     "cache_read": b.cache_read,
@@ -388,6 +465,8 @@ def compute_usage(
         current=current,
         turns=main_turns,
         agents={p.stem: read_turns(p, sub=False) for p in sub_logs},
+        spans={p.stem: s for p in sub_logs if (s := agent_span(p)) is not None},
+        names={p.stem: agent_name(p) for p in sub_logs},
         now=now or datetime.now().astimezone(),
     )
     buckets = split_by_state(turns, intervals_of(history, started_at, status, current))
