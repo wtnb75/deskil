@@ -152,3 +152,118 @@ def test_bucket_add():
     a = usage.Bucket(input=1, output=2, turns=1)
     a.add(usage.Bucket(input=3, cache_read=4, sub_total=5))
     assert (a.input, a.cache_read, a.output, a.turns, a.sub_total) == (4, 4, 2, 1, 5)
+
+
+def test_read_turns_tolerates_invalid_utf8_and_unreadable_file(tmp_path):
+    good = _line("2026-01-01T00:00:01Z", "m1", _usage(o=3))
+    path = tmp_path / "log.jsonl"
+    path.write_bytes(b"\xff\xfe not json\n" + good.encode("utf-8") + b"\n")
+    assert [t.usage["output_tokens"] for t in usage.read_turns(path)] == [3]
+    assert usage.read_turns(tmp_path / "missing.jsonl") == []
+    assert usage.read_turns(tmp_path) == []  # a directory: OSError
+
+
+def test_unparseable_times_are_skipped_not_raised():
+    history = [{"state": "a", "at": "garbage"}, {"state": "b", "at": T2}]
+    got = usage.intervals_of(history, T0, "running", "c")
+    assert got == [("c", _dt(T2), None)]
+    assert usage.intervals_of([], "garbage", "running", "c") == []
+    turns = [_turn(T1, 5)]
+    assert usage.split_by_state(turns, [("a", None, None)]) == {}
+
+
+def _project(tmp_path: Path, session: str, main: list[str], subs=()):
+    base = tmp_path / "projects" / "proj"
+    base.mkdir(parents=True)
+    (base / f"{session}.jsonl").write_text("\n".join(main) + "\n", encoding="utf-8")
+    if subs:
+        d = base / session / "subagents"
+        d.mkdir(parents=True)
+        for i, lines in enumerate(subs):
+            (d / f"agent-{i}.jsonl").write_text(
+                "\n".join(lines) + "\n", encoding="utf-8"
+            )
+    return tmp_path / "projects"
+
+
+def _compute(tmp_path, session="s1", **over):
+    kwargs = {
+        "run_id": "r1",
+        "definition": "/d/flow.toml",
+        "definition_hash": "h",
+        "session_id": session,
+        "started_at": T0,
+        "history": [{"state": "a", "at": T1}, {"state": "b", "at": T2}],
+        "visits": {"a": 1, "b": 1, "e": 1},
+        "status": "ended",
+        "current": "e",
+        "projects_dir": tmp_path / "projects",
+    }
+    kwargs.update(over)
+    return usage.compute_usage(**kwargs)
+
+
+def test_compute_usage_shape(tmp_path):
+    tool = {"type": "tool_use", "name": "Bash"}
+    _project(
+        tmp_path,
+        "s1",
+        [
+            _line("2026-01-01T00:05:00+00:00", "m1", _usage(i=1, o=10), [tool]),
+            _line("2026-01-01T00:15:00+00:00", "m2", _usage(cc=5, cr=6, o=2)),
+        ],
+        subs=[[_line("2026-01-01T00:06:00+00:00", "x1", _usage(i=2, o=3))]],
+    )
+    got = _compute(tmp_path)
+    assert got["run_id"] == "r1"
+    assert got["session_id"] == "s1"
+    assert got["definition"] == "/d/flow.toml"
+    assert got["definition_hash"] == "h"
+    assert got["states"]["a"] == {
+        "visits": 1,
+        "input": 1,
+        "cache_create": 0,
+        "cache_read": 0,
+        "output": 10,
+        "turns": 1,
+        "tool_calls": 1,
+        "sub_total": 5,
+    }
+    assert got["states"]["b"]["cache_create"] == 5
+    assert got["states"]["b"]["cache_read"] == 6
+    assert got["states"]["b"]["visits"] == 1
+    assert got["states"]["e"] == {
+        "visits": 1,
+        "input": 0,
+        "cache_create": 0,
+        "cache_read": 0,
+        "output": 0,
+        "turns": 0,
+        "tool_calls": 0,
+        "sub_total": 0,
+    }
+
+
+def test_compute_usage_returns_none_without_session_or_log(tmp_path):
+    (tmp_path / "projects").mkdir()
+    assert _compute(tmp_path, session="") is None
+    assert _compute(tmp_path, session="nolog") is None
+
+
+def test_save_and_load_usage_roundtrip(tmp_path):
+    state_dir = tmp_path / "runs"
+    path = usage.save_usage(state_dir, "r1", {"run_id": "r1", "states": {}})
+    assert path == state_dir / "r1" / "usage.json"
+    assert (path.stat().st_mode & 0o777) == 0o600
+    assert (path.parent.stat().st_mode & 0o777) == 0o700
+    assert usage.load_usage(state_dir, "r1") == {"run_id": "r1", "states": {}}
+    assert usage.load_usage(state_dir, "other") is None
+
+
+def test_load_usage_returns_none_for_corrupt_file(tmp_path):
+    d = tmp_path / "r1"
+    d.mkdir()
+    (d / "usage.json").write_text("{not json", encoding="utf-8")
+    assert usage.load_usage(tmp_path, "r1") is None
+    (d / "usage.json").write_text("[1]", encoding="utf-8")
+    assert usage.load_usage(tmp_path, "r1") is None

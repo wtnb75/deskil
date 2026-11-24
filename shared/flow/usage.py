@@ -13,7 +13,7 @@ from pathlib import Path
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]+")
 
 # (state id, entered at, left at); None means no upper bound.
-Interval = tuple[str, datetime, datetime | None]
+Interval = tuple[str, datetime | None, datetime | None]
 
 
 @dataclass
@@ -64,7 +64,7 @@ def _parse_time(text: object) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.astimezone()
+        parsed = parsed.astimezone()  # naive timestamps are treated as local time
     return parsed
 
 
@@ -82,8 +82,16 @@ def read_turns(path: Path, sub: bool = False) -> list[Turn]:
     (it holds the final output count); tool_use blocks are summed over lines.
     """
     turns: dict[str, Turn] = {}
-    with path.open(encoding="utf-8") as f:
-        for line in f:
+    try:
+        f = path.open(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    with f:
+        try:
+            lines = list(f)
+        except OSError:
+            return []
+        for line in lines:
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
@@ -133,13 +141,15 @@ def intervals_of(
     entered when the previous entry was left (or at started_at). While the run
     is running, the current state is open-ended.
     """
-    entries = [(h["state"], _parse_time(h["at"])) for h in history]
     result: list[Interval] = []
     prev = _parse_time(started_at)
-    for state, at in entries:
-        result.append((state, prev, at))
+    for h in history:
+        at = _parse_time(h.get("at"))
+        # An interval with an unreadable start or end is dropped, not guessed.
+        if prev is not None and at is not None:
+            result.append((h["state"], prev, at))
         prev = at
-    if status == "running":
+    if status == "running" and prev is not None:
         result.append((current, prev, None))
     return result
 
@@ -149,7 +159,11 @@ def split_by_state(turns: list[Turn], intervals: list[Interval]) -> dict[str, Bu
     buckets: dict[str, Bucket] = {}
     for turn in turns:
         for state, start, end in intervals:
-            if start <= turn.ts and (end is None or turn.ts < end):
+            if (
+                start is not None
+                and start <= turn.ts
+                and (end is None or turn.ts < end)
+            ):
                 break
         else:
             continue
@@ -167,3 +181,70 @@ def split_by_state(turns: list[Turn], intervals: list[Interval]) -> dict[str, Bu
             used.tool_calls = turn.tool_calls
             bucket.add(used)
     return buckets
+
+
+def compute_usage(
+    *,
+    run_id: str,
+    definition: str,
+    definition_hash: str,
+    session_id: str,
+    started_at: str,
+    history: list[dict],
+    visits: dict[str, int],
+    status: str,
+    current: str,
+    projects_dir: Path | None = None,
+) -> dict | None:
+    """Per-state token usage of a run in the shape of usage.json.
+
+    None when the run has no session id or its session log cannot be found.
+    """
+    log = find_session_log(session_id, projects_dir)
+    if log is None:
+        return None
+    turns = read_turns(log)
+    # Subagent logs sit next to the main log: <id>/subagents/agent-*.jsonl.
+    for sub_log in sorted((log.with_suffix("") / "subagents").glob("agent-*.jsonl")):
+        turns += read_turns(sub_log, sub=True)
+    buckets = split_by_state(turns, intervals_of(history, started_at, status, current))
+    states = {}
+    for state in sorted(set(visits) | set(buckets)):
+        b = buckets.get(state, Bucket())
+        states[state] = {
+            "visits": visits.get(state, 0),
+            "input": b.input,
+            "cache_create": b.cache_create,
+            "cache_read": b.cache_read,
+            "output": b.output,
+            "turns": b.turns,
+            "tool_calls": b.tool_calls,
+            "sub_total": b.sub_total,
+        }
+    return {
+        "run_id": run_id,
+        "session_id": session_id,
+        "definition": definition,
+        "definition_hash": definition_hash,
+        "states": states,
+    }
+
+
+def save_usage(state_dir: Path, run_id: str, data: dict) -> Path:
+    """Write <state_dir>/<run_id>/usage.json (dir 0700, file 0600)."""
+    run_dir = state_dir / run_id
+    run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = run_dir / "usage.json"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, indent=2) + "\n")
+    return path
+
+
+def load_usage(state_dir: Path, run_id: str) -> dict | None:
+    """Read a saved usage.json; None if absent or corrupt."""
+    try:
+        data = json.loads((state_dir / run_id / "usage.json").read_text("utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None

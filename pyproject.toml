@@ -16,10 +16,10 @@ dependencies = []
 deskil = "deskil:main"
 
 [tool.setuptools]
-# The two modules live in shared/flow. flow.schema.json is not shipped: outside this repository
+# The modules live in shared/flow. flow.schema.json is not shipped: outside this repository
 # `flow new` writes no `#:schema` line, so an installed command has no use for it.
 package-dir = {"" = "shared/flow"}
-py-modules = ["deskil", "flow"]
+py-modules = ["deskil", "flow", "usage"]
 
 [tool.setuptools.dynamic]
 version = {attr = "flow.__version__"}

@@ -12,6 +12,12 @@ import backlog as _backlog
 import flow as _flow
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_session(monkeypatch):
+    """Keep the real Claude Code session out of tests (runs would record its id)."""
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+
+
 @pytest.fixture
 def flow():
     """The flow module under test."""

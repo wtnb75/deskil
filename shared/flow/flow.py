@@ -32,6 +32,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+import usage
+
 try:
     import fcntl
 except ImportError:  # Windows: runs are not locked
@@ -1495,6 +1497,9 @@ class Run:
     # How many times each state's max_visits was hit and the step redirected to its
     # on_exceed. None for a run written before this was recorded (stats replays then).
     exceeded: dict[str, int] | None = None
+    # Claude Code session that started the run, and when; both empty for older runs.
+    session_id: str = ""
+    started_at: str = ""
 
 
 def _run_path(state_dir: Path, run_id: str) -> Path:
@@ -1534,6 +1539,8 @@ def load_run(state_dir: Path, run_id: str) -> Run:
             commands=list(data.get("commands", [])),
             args=dict(data.get("args", {})),
             exceeded=(None if data.get("exceeded") is None else dict(data["exceeded"])),
+            session_id=data.get("session_id", ""),
+            started_at=data.get("started_at", ""),
         )
     except (ValueError, KeyError, TypeError) as e:
         raise FlowError(f"{path}: run file is corrupt ({e})") from e
@@ -1946,6 +1953,8 @@ def start_run(
             cwd=str(Path.cwd()),
             args=resolved,
             exceeded={},
+            session_id=os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
+            started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         try:
             run.definition_hash = defn.hash
@@ -2036,7 +2045,32 @@ def _next_step_locked(
         run.status = "ended"
     out = _enter(defn, run, state_dir, cmd)
     save_run(state_dir, run)
+    if run.status == "ended":
+        _save_usage_on_end(run, state_dir)
     return out
+
+
+def _save_usage_on_end(run: Run, state_dir: Path) -> None:
+    """Save the run's per-state token usage; never fail the step that ended the run."""
+    try:
+        data = usage.compute_usage(
+            run_id=run.run_id,
+            definition=run.definition,
+            definition_hash=run.definition_hash,
+            session_id=run.session_id,
+            started_at=run.started_at,
+            history=run.history,
+            visits=run.visits,
+            status=run.status,
+            current=run.current,
+        )
+        if data is not None:
+            usage.save_usage(state_dir, run.run_id, data)
+    except Exception as e:  # noqa: BLE001 - usage is best effort
+        print(
+            f"warning: could not save usage for run {run.run_id}: {e}",
+            file=sys.stderr,
+        )
 
 
 def _scan_runs(state_dir: Path) -> list[tuple[str, Run | None, float]]:

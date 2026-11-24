@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import datetime
 
 import pytest
 
@@ -247,3 +248,71 @@ def test_save_run_does_not_depend_on_a_fixed_temp_name(flow, env):
         f"{rid}.json",
         f"{rid}.json.tmp",
     ]
+
+
+def test_start_records_session_id_and_started_at(flow, env, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess1")
+    rid, _ = start(flow, env)
+    run = flow.load_run(env[1], rid)
+    assert run.session_id == "sess1"
+    assert datetime.fromisoformat(run.started_at).tzinfo is not None
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    rid2, _ = start(flow, env)
+    assert flow.load_run(env[1], rid2).session_id == ""
+
+
+def test_load_run_without_new_fields(flow, env):
+    rid, _ = start(flow, env)
+    path = env[1] / f"{rid}.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["session_id"], data["started_at"]
+    path.write_text(json.dumps(data), encoding="utf-8")
+    run = flow.load_run(env[1], rid)
+    assert run.session_id == "" and run.started_at == ""
+
+
+def test_next_to_end_saves_usage_json(flow, env, monkeypatch):
+    import usage
+
+    seen = {}
+
+    def fake(**kwargs):
+        seen.update(kwargs)
+        return {"run_id": kwargs["run_id"], "states": {}}
+
+    monkeypatch.setattr(usage, "compute_usage", fake)
+    rid, _ = start(flow, env)
+    nxt(flow, env, rid, "stop")
+    got = json.loads((env[1] / rid / "usage.json").read_text(encoding="utf-8"))
+    assert got == {"run_id": rid, "states": {}}
+    assert seen["status"] == "ended" and seen["current"] == "e"
+    assert seen["history"][-1]["state"] == "a"
+
+
+def test_no_usage_json_while_running_or_when_compute_returns_none(
+    flow, env, monkeypatch
+):
+    import usage
+
+    monkeypatch.setattr(usage, "compute_usage", lambda **kw: None)
+    rid, _ = start(flow, env)
+    nxt(flow, env, rid, "again")
+    assert not (env[1] / rid).exists()
+    nxt(flow, env, rid)  # w -> a
+    nxt(flow, env, rid, "stop")
+    assert not (env[1] / rid).exists()
+
+
+def test_usage_failure_does_not_fail_next(flow, env, monkeypatch, capsys):
+    import usage
+
+    def boom(**kwargs):
+        raise RuntimeError("no way")
+
+    monkeypatch.setattr(usage, "compute_usage", boom)
+    rid, _ = start(flow, env)
+    out = nxt(flow, env, rid, "stop")
+    assert out.startswith("[e]")
+    assert flow.load_run(env[1], rid).status == "ended"
+    err = capsys.readouterr().err
+    assert f"warning: could not save usage for run {rid}: no way" in err
