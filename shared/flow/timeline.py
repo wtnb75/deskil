@@ -75,11 +75,19 @@ def build_view(*, run_id: str, definition: str, timeline: list[dict]) -> dict:
                 "subs": subs,
             }
         )
+    work = [v for v in visits if not v["gate"]]
+    if all(v["known"] for v in work):
+        tokens_state = "known"
+    elif any(v["known"] for v in work):
+        tokens_state = "partial"
+    else:
+        tokens_state = "unknown"
     return {
         "id": run_id,
         "note": note,
         "total_sec": total,
         "tokens": tokens,
+        "tokens_state": tokens_state,
         "wait_sec": wait,
         "visits": visits,
     }
@@ -213,7 +221,7 @@ _TEMPLATE = r"""<!doctype html>
   // A subagent is [name, offset seconds, seconds, tokens].
   const DATA = JSON.parse(document.getElementById("data").textContent);
   const RUNS = (DATA.runs || []).map(r => ({
-    id: r.id, note: r.note,
+    id: r.id, note: r.note, tokensState: r.tokens_state || "known",
     visits: (r.visits || []).map(v => [v.state, v.sec, v.tok, v.gate ? 1 : 0, v.subs || [], v.known !== false])
   }));
   const PALETTE = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)"];
@@ -291,7 +299,7 @@ _TEMPLATE = r"""<!doctype html>
       const el = document.createElement("section"); el.className = "run";
       const head = `<div class="run-head"><span class="run-id">${esc(r.id)}</span><span class="run-note">${esc(r.note)}</span>
         <span class="stat"><span class="k">time</span><b>${fmtDur(r.total)}</b></span>
-        <span class="stat"><span class="k">tokens</span><b>${fmtTok(r.tokens)}</b></span>
+        <span class="stat"><span class="k">tokens</span><b>${r.tokensState === "unknown" ? "unknown" : (r.tokensState === "partial" ? "≥" : "") + fmtTok(r.tokens)}</b></span>
         <span class="stat"><span class="k">waiting</span><b>${r.total > 0 ? Math.round(100 * r.waitSec / r.total) : 0}%</b></span></div>`;
       if (!r.vs.length) { el.innerHTML = head + `<p class="empty">No visits</p>`; root.appendChild(el); return; }
       const tipFor = [];

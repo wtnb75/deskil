@@ -4,6 +4,7 @@ import json
 import re
 
 import timeline
+import usage
 
 
 def visit(state, start, end, *, gate=False, tok=100, agents=(), n=1):
@@ -74,6 +75,34 @@ def test_build_view_none_tokens_are_unknown_not_zero():
     view = build([visit("x", 0, 10, tok=None)])
     v = view["visits"][0]
     assert (v["known"], v["tok"]) == (False, 0)
+
+
+def test_build_view_tokens_state_known_partial_unknown():
+    assert build([visit("a", 0, 5), visit("g", 5, 9, gate=True)])["tokens_state"] == (
+        "known"
+    )
+    partial = build([visit("a", 0, 5), visit("b", 5, 9, tok=None)])
+    assert partial["tokens_state"] == "partial"
+    assert partial["tokens"] == 100
+    unknown = build([visit("a", 0, 5, tok=None), visit("g", 5, 9, gate=True, tok=None)])
+    assert unknown["tokens_state"] == "unknown"
+    assert unknown["tokens"] == 0
+
+
+def test_build_view_gate_only_and_empty_timelines_are_known():
+    assert build([visit("g", 0, 5, gate=True)])["tokens_state"] == "known"
+    assert build([])["tokens_state"] == "known"
+
+
+def test_build_view_history_fallback_timeline_is_unknown():
+    from test_timeline_data import _kw
+
+    tl = usage.timeline_from_history(**_kw())
+    assert build(tl)["tokens_state"] == "unknown"
+    views = [build(tl)]
+    assert _extract(timeline.render_html(views))["runs"][0]["tokens_state"] == (
+        "unknown"
+    )
 
 
 def test_build_view_clamps_subagent_offsets_into_the_visit():
