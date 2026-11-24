@@ -75,6 +75,8 @@ deskil flow runs                                   # list runs (id, status, upda
 deskil flow gc --older-than DAYS --done            # delete old and/or ended runs (filters are ANDed)
 deskil flow gc --corrupt                           # delete unreadable run files (e.g. left by a killed start)
 deskil flow stats RUN_ID --json                    # per-state visits and on_exceed entries of a run
+deskil flow usage RUN_ID... [--save] [--json]      # per-state token usage of one or more runs (a table, or JSON)
+deskil flow graph <flow.toml> --usage RUN_ID...    # the same Mermaid flowchart, with mean tokens and visits per state
 deskil flow export <flow.toml> [--lang en|ja]      # print the plain-skill text (dropped items to stderr)
 deskil flow start <flow.toml> [--ref main]         # start a run, print the first step
 deskil flow next <run-id> [--result <label>]       # report a result, print the next step
@@ -98,6 +100,13 @@ Run state is stored in `.flow/runs/` of the git root (of the working directory o
 and fails at once if another process holds it; this works on macOS and Linux only (no locking on Windows). See
 `plugins/feature-a/skills/review-loop/` for a complete example, and
 `docs/superpowers/specs/2026-11-22-flow-engine-design.md` for the design (in Japanese).
+
+Token usage per state comes from the Claude Code session log, found through `CLAUDE_CODE_SESSION_ID`
+(recorded in the run at `start`); a run made outside Claude Code has no usage. When a run ends, the engine
+saves the result to `<state-dir>/<run_id>/usage.json`. Use `usage --save` to write it for a run that is
+still going or that ended before this feature existed. Claude Code may delete old session logs, so the saved
+file is what survives; `usage` and `graph --usage` fall back to it when the log is gone. `gc` removes
+`usage.json` together with the run.
 
 ## Backlog workflow
 
