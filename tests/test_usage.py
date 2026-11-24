@@ -4,6 +4,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 import usage
 
 T0 = "2026-01-01T00:00:00+00:00"
@@ -258,6 +259,52 @@ def test_save_and_load_usage_roundtrip(tmp_path):
     assert (path.parent.stat().st_mode & 0o777) == 0o700
     assert usage.load_usage(state_dir, "r1") == {"run_id": "r1", "states": {}}
     assert usage.load_usage(state_dir, "other") is None
+
+
+def test_turn_just_before_a_millisecond_boundary_stays_in_the_left_state():
+    # The turn that runs `next` is logged ~0.7s before the history entry's `at`.
+    at = "2026-01-01T00:00:10.000+00:00"
+    history = [{"state": "a", "at": at}]
+    intervals = usage.intervals_of(
+        history, "2026-01-01T00:00:00.000+00:00", "running", "b"
+    )
+    turns = [_turn("2026-01-01T00:00:09.300+00:00", 7)]
+    got = usage.split_by_state(turns, intervals)
+    assert got["a"].output == 7
+    assert "b" not in got
+
+
+@pytest.mark.parametrize("bad", ["../x", "a/b", "", "a b", "r1\n"])
+def test_save_and_load_usage_reject_bad_run_id(tmp_path, bad):
+    with pytest.raises(ValueError):
+        usage.save_usage(tmp_path, bad, {})
+    assert usage.load_usage(tmp_path, bad) is None
+
+
+def test_save_usage_is_atomic(tmp_path, monkeypatch):
+    usage.save_usage(tmp_path, "r1", {"v": 1})
+
+    def boom(src, dst):
+        raise OSError("interrupted")
+
+    monkeypatch.setattr(usage.os, "replace", boom)
+    with pytest.raises(OSError):
+        usage.save_usage(tmp_path, "r1", {"v": 2})
+    monkeypatch.undo()
+    assert usage.load_usage(tmp_path, "r1") == {"v": 1}
+    assert [p.name for p in (tmp_path / "r1").iterdir()] == ["usage.json"]
+
+    fresh = tmp_path / "fresh"
+    monkeypatch.setattr(usage.os, "replace", boom)
+    with pytest.raises(OSError):
+        usage.save_usage(fresh, "r2", {"v": 2})
+    assert list((fresh / "r2").iterdir()) == []
+
+
+def test_read_turns_streams_and_skips_non_assistant_lines(tmp_path):
+    good = _line("2026-01-01T00:00:01Z", "m1", _usage(o=3))
+    path = _write(tmp_path, ["not json at all", '{"type": "user"}', good])
+    assert [t.usage["output_tokens"] for t in usage.read_turns(path)] == [3]
 
 
 def test_load_usage_returns_none_for_corrupt_file(tmp_path):

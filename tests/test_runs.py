@@ -261,6 +261,41 @@ def test_start_records_session_id_and_started_at(flow, env, monkeypatch):
     assert flow.load_run(env[1], rid2).session_id == ""
 
 
+def test_engine_timestamps_have_millisecond_precision(flow, env):
+    rid, _ = start(flow, env)
+    nxt(flow, env, rid, "again")
+    data = saved(env, rid)
+    assert re.search(r"T\d\d:\d\d:\d\d\.\d{3}[+-]", data["started_at"])
+    assert re.search(r"T\d\d:\d\d:\d\d\.\d{3}[+-]", data["history"][0]["at"])
+
+
+def test_next_warns_when_session_differs(flow, env, monkeypatch, capsys):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess1")
+    rid, _ = start(flow, env)
+    capsys.readouterr()
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess2")
+    nxt(flow, env, rid, "again")
+    err = capsys.readouterr().err
+    assert err == (
+        f"warning: run {rid} was started in session sess1; token usage after "
+        "this point is recorded in session sess2 and is not counted\n"
+    )
+
+
+def test_next_does_not_warn_when_session_matches_or_is_empty(
+    flow, env, monkeypatch, capsys
+):
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess1")
+    rid, _ = start(flow, env)
+    nxt(flow, env, rid, "again")  # same session
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    nxt(flow, env, rid)  # current id empty
+    rid2, _ = start(flow, env)  # run without a session id
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess3")
+    nxt(flow, env, rid2, "again")
+    assert "warning" not in capsys.readouterr().err
+
+
 def test_load_run_without_new_fields(flow, env):
     rid, _ = start(flow, env)
     path = env[1] / f"{rid}.json"

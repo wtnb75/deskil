@@ -6,11 +6,13 @@ Standard library only; independent of flow.py.
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]+")
+_RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
 
 # (state id, entered at, left at); None means no upper bound.
 Interval = tuple[str, datetime | None, datetime | None]
@@ -88,37 +90,43 @@ def read_turns(path: Path, sub: bool = False) -> list[Turn]:
         return []
     with f:
         try:
-            lines = list(f)
+            for line in f:
+                if '"assistant"' not in line:  # cheap pre-filter before parsing
+                    continue
+                _add_line(turns, line, sub)
         except OSError:
             return []
-        for line in lines:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(entry, dict) or entry.get("type") != "assistant":
-                continue
-            message = entry.get("message")
-            if not isinstance(message, dict):
-                continue
-            mid, usage = message.get("id"), message.get("usage")
-            if not mid or not isinstance(usage, dict):
-                continue
-            ts = _parse_time(entry.get("timestamp"))
-            if ts is None:
-                continue
-            content = message.get("content")
-            blocks = content if isinstance(content, list) else []
-            tools = sum(
-                1 for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"
-            )
-            turn = turns.get(mid)
-            if turn is None:
-                turns[mid] = Turn(ts=ts, usage=usage, tool_calls=tools, sub=sub)
-            else:
-                turn.usage = usage
-                turn.tool_calls += tools
     return list(turns.values())
+
+
+def _add_line(turns: dict[str, Turn], line: str, sub: bool) -> None:
+    """Fold one log line into `turns` (see read_turns)."""
+    try:
+        entry = json.loads(line)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(entry, dict) or entry.get("type") != "assistant":
+        return
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return
+    mid, usage = message.get("id"), message.get("usage")
+    if not mid or not isinstance(usage, dict):
+        return
+    ts = _parse_time(entry.get("timestamp"))
+    if ts is None:
+        return
+    content = message.get("content")
+    blocks = content if isinstance(content, list) else []
+    tools = sum(
+        1 for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"
+    )
+    turn = turns.get(mid)
+    if turn is None:
+        turns[mid] = Turn(ts=ts, usage=usage, tool_calls=tools, sub=sub)
+    else:
+        turn.usage = usage
+        turn.tool_calls += tools
 
 
 def find_session_log(session_id: str, projects_dir: Path | None = None) -> Path | None:
@@ -232,12 +240,21 @@ def compute_usage(
 
 def save_usage(state_dir: Path, run_id: str, data: dict) -> Path:
     """Write <state_dir>/<run_id>/usage.json (dir 0700, file 0600)."""
+    if not _RUN_ID.fullmatch(run_id):
+        raise ValueError(f"invalid run id: {run_id!r}")
     run_dir = state_dir / run_id
     run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     path = run_dir / "usage.json"
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(json.dumps(data, indent=2) + "\n")
+    # Write a temp file in the same directory, then replace: never a partial file.
+    fd, tmp = tempfile.mkstemp(dir=run_dir, prefix="usage.", suffix=".tmp")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -313,6 +330,8 @@ def format_table(agg: dict) -> str:
 
 def load_usage(state_dir: Path, run_id: str) -> dict | None:
     """Read a saved usage.json; None if absent or corrupt."""
+    if not _RUN_ID.fullmatch(run_id):
+        return None
     try:
         data = json.loads((state_dir / run_id / "usage.json").read_text("utf-8"))
     except (OSError, ValueError):

@@ -1954,7 +1954,7 @@ def start_run(
             args=resolved,
             exceeded={},
             session_id=os.environ.get("CLAUDE_CODE_SESSION_ID", ""),
-            started_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            started_at=datetime.now().astimezone().isoformat(timespec="milliseconds"),
         )
         try:
             run.definition_hash = defn.hash
@@ -2003,6 +2003,14 @@ def _next_step_locked(
     run = load_run(state_dir, run_id)
     if run.status == "ended":
         raise FlowError(f"run already ended: {run_id}")
+    current_session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if run.session_id and current_session and run.session_id != current_session:
+        print(
+            f"warning: run {run_id} was started in session {run.session_id}; "
+            f"token usage after this point is recorded in session {current_session} "
+            "and is not counted",
+            file=sys.stderr,
+        )
     path = Path(run.definition)
     if not path.is_file():
         raise FlowError(f"definition not found: {path}")
@@ -2030,7 +2038,9 @@ def _next_step_locked(
     entry = {
         "state": run.current,
         "label": label,
-        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        # Milliseconds, like the session log: the turn that runs `next` is logged
+        # well under a second before this, and must stay in the state being left.
+        "at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
     }
     if gate:
         entry["approval"] = approval.strip()
@@ -2476,7 +2486,7 @@ def _format_tokens(n: float) -> str:
 def _heat_step(share: float) -> int:
     """Map a share of the total (0 < share <= 1) to a heat step 1..4."""
     for step, upper in enumerate((0.25, 0.5, 0.75), start=1):
-        if share <= upper:
+        if share < upper:
             return step
     return 4
 
@@ -2491,7 +2501,9 @@ def graph_mermaid(defn_path: Path, usage_agg: dict | None = None) -> str:
     """
     defn = load_definition(defn_path)
     stats = (usage_agg or {}).get("states", {})
-    grand = sum(s.get("total_mean", 0) for s in stats.values())
+    grand = sum(
+        s.get("total_mean", 0) for sid, s in stats.items() if sid in defn.states
+    )
     lines = ["flowchart TD", f"  start_node((start)) --> n_{defn.start}"]
     heat: list[tuple[str, int]] = []
     for st in defn.states.values():
@@ -3265,6 +3277,15 @@ def main(
             if args.usage:
                 sd = _resolve_state_dir(args.state_dir)
                 agg = usage.aggregate([load_run_usage(rid, sd) for rid in args.usage])
+                extra = sorted(
+                    set(agg["states"]) - set(load_definition(args.definition).states)
+                )
+                if extra:
+                    print(
+                        f"warning: usage has states that are not in {args.definition}: "
+                        + ", ".join(extra),
+                        file=sys.stderr,
+                    )
             sys.stdout.write(graph_mermaid(args.definition, agg))
             return 0
         if args.command == "export":

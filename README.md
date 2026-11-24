@@ -108,6 +108,12 @@ still going or that ended before this feature existed. Claude Code may delete ol
 file is what survives; `usage` and `graph --usage` fall back to it when the log is gone. `gc` removes
 `usage.json` together with the run.
 
+Limitations: usage is read from the session that started the run. A run driven from inside a subagent
+reports 0 main-session turns and tool calls (its tokens appear only as `sub_total`). Subagents that run at
+the same time as a run are counted into whichever state is open. Two runs active in one session count each
+other's subagent tokens. A run continued from another session is not counted after the switch, and `next`
+prints a warning.
+
 ## Backlog workflow
 
 `docs/BACKLOG.md` holds the ideas that are not done yet (items `B-NNN` with a state, a priority `P1`-`P3`,

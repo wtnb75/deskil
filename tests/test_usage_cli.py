@@ -14,7 +14,7 @@ def _write_run(d: Path, run_id: str) -> None:
         "current": "end",
         "visits": {"a": 1},
         "history": [],
-        "status": "done",
+        "status": "ended",
         "session_id": "s-" + run_id,
         "started_at": "2026-01-01T00:00:00Z",
     }
