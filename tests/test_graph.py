@@ -132,6 +132,26 @@ def test_format_tokens(flow):
     assert flow._format_tokens(1234567) == "1.2M"
 
 
+@pytest.mark.parametrize(
+    ("n", "expected"),
+    [
+        (1000, "1.0k"),
+        (999.5, "1.0k"),
+        (999_999, "1.0M"),
+        (1_000_000, "1.0M"),
+        (999_949, "999.9k"),
+    ],
+)
+def test_format_tokens_unit_boundaries(flow, n, expected):
+    assert flow._format_tokens(n) == expected
+
+
+def test_graph_usage_missing_run_exits_1(flow, p, tmp_path, capsys):
+    argv = ["graph", str(p), "--usage", "missing", "--state-dir", str(tmp_path)]
+    assert flow.main(argv) == 1
+    assert capsys.readouterr().err.startswith("error:")
+
+
 def test_graph_command_usage_flag(flow, p, tmp_path, capsys):
     import json
 

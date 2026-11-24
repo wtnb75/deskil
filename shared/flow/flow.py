@@ -2463,11 +2463,11 @@ _HEAT_FILLS = ("#fff3cd", "#ffd966", "#f4a259", "#e4572e")
 
 def _format_tokens(n: float) -> str:
     """1234 -> '1.2k', 1234567 -> '1.2M'; values under 1000 are plain integers."""
-    if n >= 1_000_000:
-        return f"{n / 1_000_000:.1f}M"
-    if n >= 1000:
+    if round(n) < 1000:
+        return str(round(n))
+    if round(n / 1000, 1) < 1000:
         return f"{n / 1000:.1f}k"
-    return str(round(n))
+    return f"{n / 1_000_000:.1f}M"
 
 
 def _heat_step(share: float) -> int:
