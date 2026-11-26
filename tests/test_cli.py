@@ -138,6 +138,15 @@ def test_state_dir_from_env(flow, env, tmp_path, monkeypatch, capsys):
     assert list(target.glob("*.json"))
 
 
+def test_state_dir_from_env_expands_tilde(flow, env, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("FLOW_STATE_DIR", "~/flow")
+    monkeypatch.chdir(tmp_path)
+    assert flow.main(["start", str(env[0])]) == 0
+    assert list((tmp_path / "flow").glob("*.json"))
+    assert not (tmp_path / "~").exists()
+
+
 def test_usage_error_exits_2(flow):
     with pytest.raises(SystemExit) as exc:
         flow.main([])
