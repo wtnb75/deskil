@@ -3132,10 +3132,11 @@ def _default_cmd(cmd: str | None = None) -> str:
 
 def _resolve_state_dir(arg: Path | None) -> Path:
     if arg is not None:
-        return arg
+        return arg.expanduser()
     env = os.environ.get("FLOW_STATE_DIR")
     if env:
-        return Path(env)
+        # The shell does not expand "~" inside a quoted or dotenv-style value.
+        return Path(env).expanduser()
     return _state_root() / ".flow" / "runs"
 
 
