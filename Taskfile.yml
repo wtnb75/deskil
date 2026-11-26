@@ -12,6 +12,31 @@ tasks:
       - uv run --with ruff ruff check .
       - uv run --with ruff ruff format --check .
 
+  backlog:stats:
+    desc: Show backlog counts per state and priority
+    cmds:
+      - uv run shared/backlog/backlog.py stats
+
+  backlog:list:
+    desc: "List backlog items (extra options after `--`, e.g. task backlog:list -- --priority P1)"
+    cmds:
+      - uv run shared/backlog/backlog.py list {{.CLI_ARGS}}
+
+  backlog:next:
+    desc: Print the next free backlog item id
+    cmds:
+      - uv run shared/backlog/backlog.py next-id
+
+  backlog:show:
+    desc: "Show one backlog item (task backlog:show -- B-001)"
+    cmds:
+      - uv run shared/backlog/backlog.py show {{.CLI_ARGS}}
+
+  backlog:lint:
+    desc: Check the backlog format
+    cmds:
+      - uv run shared/backlog/backlog.py lint
+
   lint-flow:
     desc: Lint every flow definition under plugins/
     cmds:
