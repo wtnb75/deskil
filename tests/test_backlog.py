@@ -244,6 +244,34 @@ def test_next_id_cli_sees_origin_ids(backlog, tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == "B-041\n"
 
 
+# --- stats -----------------------------------------------------------------
+
+
+def test_stats_counts_per_state_and_priority(backlog):
+    out = backlog.render_stats(backlog.parse(SAMPLE))
+    assert [line.split() for line in out.splitlines()] == [
+        ["P1", "P2", "P3", "-", "total"],
+        ["todo", "1", "0", "1", "0", "2"],
+        ["ready", "0", "1", "0", "0", "1"],
+        ["done", "0", "1", "0", "0", "1"],
+        ["dropped", "0", "0", "0", "0", "0"],
+        ["total", "1", "2", "1", "0", "4"],
+    ]
+
+
+def test_stats_cli(backlog, tmp_path, capsys):
+    path = write(tmp_path, SAMPLE)
+    assert backlog.main(["--file", str(path), "stats"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1].split() == [
+        "total",
+        "1",
+        "2",
+        "1",
+        "0",
+        "4",
+    ]
+
+
 # --- list ------------------------------------------------------------------
 
 

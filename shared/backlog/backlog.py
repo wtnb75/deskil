@@ -299,6 +299,33 @@ def render_list(
     return "\n".join(rows)
 
 
+def render_stats(bl: Backlog) -> str:
+    """Count items per state and priority. Items without a priority are counted under `-`."""
+    cols = (*PRIORITIES, "-")
+    counts: dict[str, dict[str, int]] = {s: dict.fromkeys(cols, 0) for s in STATES}
+    other = dict.fromkeys(cols, 0)  # items whose state is missing or unknown
+    for item in bl.items:
+        state = item.get("状態")
+        prio = item.get("優先度")
+        row = counts.get(state, other) if state else other
+        row[prio if prio in PRIORITIES else "-"] += 1
+    if any(other.values()):
+        counts["?"] = other
+    header = f"{'':8}" + "".join(f"{c:>5}" for c in cols) + f"{'total':>7}"
+    rows = [header]
+    for state, row in counts.items():
+        rows.append(
+            f"{state:8}"
+            + "".join(f"{row[c]:>5}" for c in cols)
+            + f"{sum(row.values()):>7}"
+        )
+    totals = [sum(r[c] for r in counts.values()) for c in cols]
+    rows.append(
+        f"{'total':8}" + "".join(f"{n:>5}" for n in totals) + f"{sum(totals):>7}"
+    )
+    return "\n".join(rows)
+
+
 def started_ids() -> set[str]:
     """Ids of items that already have a `backlog/<ID>` branch on origin (a legacy `backlog/<ID>-<slug>` also counts; as of the last `git fetch --prune`;
     without `--prune`, refs of branches deleted on origin linger and keep their items hidden).
@@ -686,6 +713,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="show only the first N items (after sorting, --priority, --not-started and --unblocked)",
     )
 
+    sub.add_parser("stats", help="count items per state and priority")
+
     p_show = sub.add_parser("show", help="print one item")
     p_show.add_argument("id")
 
@@ -806,6 +835,8 @@ def run(args: argparse.Namespace) -> int:
         )
         if out:
             print(out)
+    elif args.command == "stats":
+        print(render_stats(bl))
     elif args.command == "show":
         print(render_show(bl, args.id))
     elif args.command == "lint":
